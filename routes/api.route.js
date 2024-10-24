@@ -171,6 +171,7 @@ router.post('/drop-ball', authJwt, async (req, res) => {
     //await bot.sendMessage(userData.id, 'test message plinkoo')
   
     await Game.create({
+      active: false,
       id: gameId,
       ownerId: String(userData.id),
       amount: Number(betAmount),
