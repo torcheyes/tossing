@@ -141,8 +141,10 @@ router.post('/drop-ball', authJwt, async (req, res) => {
   
     await db['activeSeed'].updateOne({_id: gameSettings.activeSeedId}, {$inc: {nonce: 1}})
   
+    let newBalance = user.balance
     if( addedAmt !== 0 ) {
-      await User.updateOne({userId: String(userData.id)}, {$inc: {balance: addedAmt}})
+      const updateRes = await User.findOneAndUpdate({userId: String(userData.id)}, {$inc: {balance: addedAmt}}, {new: true})
+      newBalance = updateRes.balance
     }
   
     const gameId = generateRandomId(32)
@@ -150,6 +152,7 @@ router.post('/drop-ball', authJwt, async (req, res) => {
       path,
       startPos,
       finalPos,
+      balance: newBalance,
       gameInfo: {
         id: gameId,
         ownerId: String(userData.id),

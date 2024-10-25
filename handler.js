@@ -102,7 +102,10 @@ function loadDatabases() {
 
 const connectMongoose = async () => {
     return new Promise( resolve => {
-        mongoose.connect(config.mongo)
+        mongoose.connect(config.mongo, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true
+        })
             .then(async () => {
                 console.log(`Connected to mongodb`)
                 resolve(true)
