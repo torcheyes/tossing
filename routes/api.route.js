@@ -27,11 +27,19 @@ function generateServerSeed() {
 }
   
 const generatePlinkoDir = (serverSeed, clientSeed, index, nonce) => {
-    const gameSeed = `${serverSeed}${clientSeed}${index}${nonce}`
-    const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex')
-    const resultNumber = parseInt(gameHash.substring(0, 13), 16)
-    const result = resultNumber % 2 === 0 ? 'R' : 'L'
-    return { result, gameHash }
+  const gameSeed = `${serverSeed}${clientSeed}${index}${nonce}`
+  const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex')
+  const resultNumber = parseInt(gameHash.substring(0, 13), 16)
+  const result = resultNumber % 2 === 0 ? 'R' : 'L'
+  return { result, gameHash }
+}
+
+const generatePlinkoStartPos = (serverSeed, clientSeed, nonce) => {
+  const gameSeed = `${serverSeed}${clientSeed}${nonce}`
+  const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex')
+  const resultNumber = parseInt(gameHash.substring(0, 13), 16)
+  const result = resultNumber % 3
+  return { result, gameHash }
 }
 
 router.post('/drop-ball', authJwt, async (req, res) => {
@@ -82,15 +90,26 @@ router.post('/drop-ball', authJwt, async (req, res) => {
   
     const path = []
     //const startPos = Math.floor(Math.random() * 3)
-    const startPos = 1
+    const startPos = generatePlinkoStartPos(gameSettings.serverSeed, gameSettings.clientSeed, gameSettings.nonce).result
   
     let currentBallPos = Math.round(rows / 2) + startPos
   
     for (let i = 0; i < rows; i++) {
       const dirRes = generatePlinkoDir(gameSettings.serverSeed, gameSettings.clientSeed, i, gameSettings.nonce)
-      const dir = dirRes.result
+      let dir = dirRes.result
       //const dir = Math.random() > 0.5 ? 'R' : 'L'
+
       path.push(dir)
+
+      if( i === rows - 1 ) {
+        if( path.filter(e => e !== 'L').length === 0 && startPos === 0 ) {
+          path[path.length - 1] = 'R'
+          dir = 'R'
+        } else if( path.filter(e => e !== 'R').length === 0 && startPos === 2 ) {
+          path[path.length - 1] = 'L'
+          dir = 'L'
+        }
+      }
   
       if( dir === 'R' ) currentBallPos += .5
       else currentBallPos -= .5
