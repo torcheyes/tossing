@@ -124,13 +124,30 @@ router.post('/drop-ball', authJwt, async (req, res) => {
       return res.status(400).json({error: 'Something went wrong'})
     }
   
-    const addedAmt = (betAmount * multiplier) - betAmount
+    const winnings = betAmount * multiplier
+    const addedAmt = winnings - betAmount
   
     await db['activeSeed'].updateOne({_id: gameSettings.activeSeedId}, {$inc: {nonce: 1}})
   
-    if( addedAmt !== 0 ) {
-      await User.updateOne({userId: String(userData.id)}, {$inc: {balance: addedAmt}})
+    const statsObj = {}
+    if( multiplier > 1 ) {
+      statsObj.totalWon = 1
+      statsObj.totalWinAmt = addedAmt
+    } else if ( multiplier < 1 ) {
+      statsObj.totalLost = 1
+    } else {
+      statsObj.totalTie = 1
     }
+
+    await User.updateOne({userId: String(userData.id)}, {
+      $inc: {
+        totalPlayed: 1,
+        balance: addedAmt,
+        totalWagered: Number(betAmount),
+        ...statsObj
+      }
+    })
+    
   
     const gameId = generateRandomId(32)
     res.status(200).json({
@@ -156,7 +173,7 @@ router.post('/drop-ball', authJwt, async (req, res) => {
   
     // game report ?????
     //await bot.sendMessage(userData.id, 'test message plinkoo')
-  
+
     await Game.create({
       active: false,
       id: gameId,
@@ -173,6 +190,10 @@ router.post('/drop-ball', authJwt, async (req, res) => {
         nonce: gameSettings.nonce
       }
     })
+
+    if( multiplier > 1 ) {
+      await db["bot"].updateOne({ id: 1 }, { $inc: { balance: -winnings } }, { upsert: true })
+    }
   
 })
   
