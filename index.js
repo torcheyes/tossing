@@ -4,6 +4,7 @@ const PORT = 5000
 const http = require('http')
 const cors = require('cors')
 const path = require('path')
+require('dotenv').config()
 
 const { connectMongoose } = require("./handler")
 

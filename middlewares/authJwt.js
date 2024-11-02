@@ -1,6 +1,5 @@
 const { db } = require("../handler.js")
 const crypto = require('crypto')
-const config = require('../config.json')
 const User = db.user
 const querystring = require('querystring')
 
@@ -9,7 +8,7 @@ const verifyTelegramWebAppData = (telegramInitData) => {
     const encoded = decodeURIComponent(telegramInitData);
   
     // HMAC-SHA-256 signature of the bot's token with the constant string WebAppData used as a key.
-    const secret = crypto.createHmac("sha256", "WebAppData").update(config.token);
+    const secret = crypto.createHmac("sha256", "WebAppData").update(process.env?.TELE_TOKEN||process.env?.DEV_TELE_TOKEN);
   
     // Data-check-string is a chain of all received fields'.
     const arr = encoded.split("&");

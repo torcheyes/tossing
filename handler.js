@@ -1,10 +1,8 @@
-const config = require('./config.json')
-
 const TelegramBot = require('node-telegram-bot-api')
 const mongoose = require("mongoose")
 const { Schema, model } = require("mongoose");
 
-//const bot = new TelegramBot(config.token, { polling: false })
+//const bot = new TelegramBot(process.env?.TELE_TOKEN||process.env?.DEV_TELE_TOKEN, { polling: false })
 const bot = {}
 
 function loadDatabases() {
@@ -88,7 +86,8 @@ function loadDatabases() {
         join_referral_id: String,
         referral_earnings: { type: Number, default: 0 },
         referral_invited: { type: Number, default: 0 },
-        referral_played: { type: Number, default: 0 }
+        referral_played: { type: Number, default: 0 },
+        casinoBot: Boolean
     }))
     return {
         bot,
@@ -102,7 +101,7 @@ function loadDatabases() {
 
 const connectMongoose = async () => {
     return new Promise( resolve => {
-        mongoose.connect(config.mongo)
+        mongoose.connect(process.env?.MONGO_URI||process.env?.DEV_MONGO_URI)
             .then(async () => {
                 console.log(`Connected to mongodb`)
                 resolve(true)

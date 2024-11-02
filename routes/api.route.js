@@ -124,6 +124,7 @@ router.post('/drop-ball', authJwt, async (req, res) => {
       return res.status(400).json({error: 'Something went wrong'})
     }
   
+    const losses = betAmount * (1 - multiplier)
     const winnings = betAmount * multiplier
     const addedAmt = winnings - betAmount
   
@@ -192,7 +193,9 @@ router.post('/drop-ball', authJwt, async (req, res) => {
     })
 
     if( multiplier > 1 ) {
-      await db["bot"].updateOne({ id: 1 }, { $inc: { balance: -winnings } }, { upsert: true })
+      await User.updateOne({ casinoBot: true }, { $inc: { balance: -winnings } })
+    } else if( multiplier < 1 ) {
+      await User.updateOne({ casinoBot: true }, { $inc: { balance: losses } })
     }
   
 })
