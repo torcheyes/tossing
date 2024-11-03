@@ -26,25 +26,38 @@ function generateServerSeed() {
     }
 }
   
-const generatePlinkoDir = (serverSeed, clientSeed, index, nonce) => {
-  const gameSeed = `${serverSeed}${clientSeed}${index}${nonce}`
-  const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex')
-  const resultNumber = parseInt(gameHash.substring(0, 13), 16)
-  const result = resultNumber % 2 === 0 ? 'R' : 'L'
-  return { result, gameHash }
-}
+const generatePlinkoDir = (serverSeed, clientSeed, index, nonce, biasFactor, currentBallPos, targetCenter) => {
+  const gameSeed = `${serverSeed}${clientSeed}${index}${nonce}`;
+  const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex');
+  const resultNumber = parseInt(gameHash.substring(0, 13), 16);
+  
+  // Calculate the distance from the center
+  const distanceFromCenter = Math.abs(currentBallPos - targetCenter);
+
+  // Use biasFactor to influence direction choice based on the distance from the center
+  const biasProbability = Math.max(0, 1 - (distanceFromCenter * biasFactor));
+  const randomThreshold = resultNumber % 100 / 100;
+
+  const result = randomThreshold < biasProbability ? (currentBallPos > targetCenter ? 'L' : 'R') : (resultNumber % 2 === 0 ? 'R' : 'L');
+  return { result, gameHash };
+};
 
 const generatePlinkoStartPos = (serverSeed, clientSeed, nonce) => {
-  const gameSeed = `${serverSeed}${clientSeed}${nonce}`
-  const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex')
-  const resultNumber = parseInt(gameHash.substring(0, 13), 16)
-  const result = resultNumber % 3
-  return { result, gameHash }
+  const gameSeed = `${serverSeed}${clientSeed}${nonce}`;
+  const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex');
+  const resultNumber = parseInt(gameHash.substring(0, 13), 16);
+  const result = resultNumber % 3;
+  return { result, gameHash };
 }
+
 
 router.post('/drop-ball', authJwt, async (req, res) => {
     const userData = req.userData
     const {rows, risk, betAmount} = req.body
+
+    //return res.status(400).json({error: 'Disabled for maintenance'}) 
+
+    if( Number(betAmount) < 1 ) return res.status(400).json({error: 'Minimum wager is 1$'})
   
     const user = await User.findOne({userId: String(userData.id)}).select('balance')
     if(!user) return res.status( 400 ).json({error: 'Unauthorised access'})
@@ -88,34 +101,32 @@ router.post('/drop-ball', authJwt, async (req, res) => {
       }
     }
   
-    const path = []
-    //const startPos = Math.floor(Math.random() * 3)
-    const startPos = generatePlinkoStartPos(gameSettings.serverSeed, gameSettings.clientSeed, gameSettings.nonce).result
-  
-    let currentBallPos = Math.round(rows / 2) + startPos
+    const path = [];
+    const startPos = generatePlinkoStartPos(gameSettings.serverSeed, gameSettings.clientSeed, gameSettings.nonce).result;
+    const targetCenter = Math.round(rows / 2)
+    let currentBallPos = targetCenter + startPos;
   
     for (let i = 0; i < rows; i++) {
-      const dirRes = generatePlinkoDir(gameSettings.serverSeed, gameSettings.clientSeed, i, gameSettings.nonce)
-      let dir = dirRes.result
-      //const dir = Math.random() > 0.5 ? 'R' : 'L'
-
-      path.push(dir)
-
-      if( i === rows - 1 ) {
-        if( path.filter(e => e !== 'L').length === 0 && startPos === 0 ) {
-          path[path.length - 1] = 'R'
-          dir = 'R'
-        } else if( path.filter(e => e !== 'R').length === 0 && startPos === 2 ) {
-          path[path.length - 1] = 'L'
-          dir = 'L'
+      const dirRes = generatePlinkoDir(gameSettings.serverSeed, gameSettings.clientSeed, i, gameSettings.nonce, .8, currentBallPos, targetCenter + 1);
+      let dir = dirRes.result;
+  
+      path.push(dir);
+  
+      if (i === rows - 1) {
+        if (path.filter(e => e !== 'L').length === 0 && startPos === 0) {
+          path[path.length - 1] = 'R';
+          dir = 'R';
+        } else if (path.filter(e => e !== 'R').length === 0 && startPos === 2) {
+          path[path.length - 1] = 'L';
+          dir = 'L';
         }
       }
   
-      if( dir === 'R' ) currentBallPos += .5
-      else currentBallPos -= .5
+      if (dir === 'R') currentBallPos += 0.5;
+      else currentBallPos -= 0.5;
     }
-    
-    const finalPos = Math.floor(currentBallPos) - 1
+  
+    const finalPos = Math.floor(currentBallPos) - 1;
     
     const multiplier = payoutValues?.[risk]?.[rows]?.[finalPos]
   
