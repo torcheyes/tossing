@@ -107,7 +107,7 @@ router.post('/drop-ball', authJwt, async (req, res) => {
     let currentBallPos = targetCenter + startPos;
   
     for (let i = 0; i < rows; i++) {
-      const dirRes = generatePlinkoDir(gameSettings.serverSeed, gameSettings.clientSeed, i, gameSettings.nonce, .8, currentBallPos, targetCenter + 1);
+      const dirRes = generatePlinkoDir(gameSettings.serverSeed, gameSettings.clientSeed, i, gameSettings.nonce, .5, currentBallPos, targetCenter + 1);
       let dir = dirRes.result;
   
       path.push(dir);
