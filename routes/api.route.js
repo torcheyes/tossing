@@ -106,6 +106,10 @@ router.post('/drop-ball', authJwt, async (req, res) => {
     if (!user) return res.status(400).json({ error: 'Unauthorized access' });
     if (Number(betAmount) > user.balance) return res.status(400).json({ error: 'Insufficient balance' });
 
+    const botUser = await User.findOne({ casinoBot: true }).select('balance').lean();
+    if(!botUser) return res.status(400).json({ error: 'Bot user not found' });
+    if( Number(betAmount) > botUser.balance ) return res.status(400).json({ error: 'Insufficient house balance' });
+
     let activeSeed
     const cacheSeed = cache[`${userData.id}_seed`]
     if( cacheSeed ) {
