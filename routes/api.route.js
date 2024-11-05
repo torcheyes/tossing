@@ -1,6 +1,8 @@
 const express = require('express')
 const router = express.Router()
 const crypto = require('crypto')
+const rateLimit = require('express-rate-limit')
+
 
 const { db } = require("../handler")
 const { authJwt } = require('../middlewares/authJwt')
@@ -94,19 +96,41 @@ const generatePlinkoPath = (serverSeed, clientSeed, nonce, rows, percentages) =>
   return { startPos, path, finalPos: Math.floor(currentPos) - 1 }
 }
 
-router.post('/drop-ball', authJwt, async (req, res) => {
+const dropBallLimiter = rateLimit({
+  store: new rateLimit.MemoryStore(),
+  max: 1,
+  windowMs: 300,
+  handler: (req, res, next) => {
+    const timeLeft = (req.rateLimit.resetTime - Date.now()) / 1000
+    res.status(429).json({
+      error: 'This action cannot be performed due to slowmode rate limit.',
+      timeLeft: timeLeft > 0 ? timeLeft : 0,
+    })
+  },
+})
+
+router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
     const userData = req.userData;
     const { rows, risk, betAmount } = req.body;
 
     if (!betAmount || Number(betAmount) < 1) return res.status(400).json({ error: 'Minimum wager is 1$' });
+    if ( Number(betAmount) > 10) return res.status(400).json({ error: 'Maximum wager is 10$' });
     if (!['low', 'medium', 'high'].includes(risk)) return res.status(400).json({ error: 'Invalid parameters' });
     if (!rows || rows < 8 || rows > 16) return res.status(400).json({ error: 'Invalid parameters' });
 
-    let user = /*cache[userData.id] ||*/ await User.findOne({ userId: String(userData.id) }).select('balance').lean();
+    const balances = await User.find({ $or: [
+        {casinoBot: true},
+        {userId: String(userData.id)}
+      ]
+    }).select('balance').lean()
+
+    //let user = /*cache[userData.id] ||*/ await User.findOne({ userId: String(userData.id) }).select('balance').lean();
+    const user = balances[1]
+    const botUser = balances[0]
     if (!user) return res.status(400).json({ error: 'Unauthorized access' });
     if (Number(betAmount) > user.balance) return res.status(400).json({ error: 'Insufficient balance' });
 
-    const botUser = await User.findOne({ casinoBot: true }).select('balance').lean();
+    //const botUser = await User.findOne({ casinoBot: true }).select('balance').lean();
     if(!botUser) return res.status(400).json({ error: 'Bot user not found' });
     if( Number(betAmount) > botUser.balance ) return res.status(400).json({ error: 'Insufficient house balance' });
 
@@ -154,8 +178,20 @@ router.post('/drop-ball', authJwt, async (req, res) => {
     const winnings = betAmount * multiplier;
     const addedAmt = winnings - betAmount;
 
-    user.balance += addedAmt
+    //user.balance += addedAmt
     //cache[userData.id] = user
+
+    await User.updateOne({ userId: String(userData.id) }, {
+      $inc: {
+        balance: addedAmt,
+        totalWagered: Number(betAmount),
+        totalPlayed: 1,
+        totalWon: multiplier > 1 ? 1 : 0,
+        totalWinAmt: multiplier > 1 ? addedAmt : 0,
+        totalLost: multiplier < 1 ? 1 : 0,
+        totalTie: multiplier === 1 ? 1 : 0
+      }
+    });
 
     const gameId = generateRandomId(32);
     res.status(200).json({
@@ -169,11 +205,11 @@ router.post('/drop-ball', authJwt, async (req, res) => {
             multiplayer: multiplier,
             game: 'plinko',
             gameData: {
-                rows: Number(rows),
-                risk,
-                clientSeed: activeSeed.clientSeed,
-                serverSeedHashed: activeSeed.serverSeedHashed,
-                nonce: activeSeed.nonce
+              rows: Number(rows),
+              risk,
+              clientSeed: activeSeed.clientSeed,
+              serverSeedHashed: activeSeed.serverSeedHashed,
+              nonce: activeSeed.nonce
             }
         }
     });
@@ -191,29 +227,14 @@ router.post('/drop-ball', authJwt, async (req, res) => {
     }, 30000 )
     cache[`${userData.id}_timeout`] = timeoutId
 
-    // Final database updates after response
-    await User.updateOne({ userId: String(userData.id) }, {
-        $inc: {
-          balance: addedAmt,
-          totalWagered: Number(betAmount),
-          totalPlayed: 1,
-          totalWon: multiplier > 1 ? 1 : 0,
-          totalWinAmt: multiplier > 1 ? addedAmt : 0,
-          totalLost: multiplier < 1 ? 1 : 0,
-          totalTie: multiplier === 1 ? 1 : 0
-        }
-    });
-
-    // Update or create the game seed record in database
     await db['activeSeed'].updateOne({ _id: activeSeed._id }, { nonce: activeSeed.nonce })
 
-    // If the casino bot needs balance adjustment
-    const casinoBotAdjustment = multiplier > 1 ? -winnings : (multiplier < 1 ? losses : 0)
-    if (casinoBotAdjustment !== 0) {
-      await User.updateOne({ casinoBot: true }, { $inc: { balance: casinoBotAdjustment } })
+    if( multiplier > 1 ) {
+      await User.updateOne({ casinoBot: true }, { $inc: { balance: -winnings } })
+    } else if( multiplier < 1 ) {
+      await User.updateOne({ casinoBot: true }, { $inc: { balance: losses } })
     }
 
-    // Game report creation
     await Game.create({
         active: false,
         id: gameId,
@@ -228,9 +249,9 @@ router.post('/drop-ball', authJwt, async (req, res) => {
           serverSeedHashed: activeSeed.serverSeedHashed,
           nonce: activeSeed.nonce
         }
-    });
+    })
 
-});
+})
 
   
 router.post('/user-state', authJwt, async(req, res) => {

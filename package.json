@@ -3,6 +3,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "flat-cache": "^6.1.1",
     "mongoose": "^8.7.2",
     "node-telegram-bot-api": "^0.66.0"
   },
