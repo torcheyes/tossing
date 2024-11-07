@@ -6,6 +6,8 @@ const cors = require('cors')
 const path = require('path')
 require('dotenv').config()
 
+globalThis.plinkoCache = {}
+
 const { connectMongoose } = require("./handler")
 
 const corsOptions = {
@@ -22,7 +24,13 @@ app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
 const apiRoute = require('./routes/api.route')
+const plinkoRoute = require('./routes/plinko.route')
+const minesRoute = require('./routes/mines.route')
+
 app.use( '/api', apiRoute )
+app.use( '/api/plinko', plinkoRoute )
+app.use( '/api/mines', minesRoute )
+
 
 app.use(express.static(path.join(__dirname, 'build')))
 app.get('*', (req, res) => {
