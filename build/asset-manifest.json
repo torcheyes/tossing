@@ -1,12 +1,12 @@
 {
   "files": {
     "main.css": "/static/css/main.d5d43f97.css",
-    "main.js": "/static/js/main.8bb97eaf.js",
+    "main.js": "/static/js/main.ccff11ec.js",
     "static/media/gem-icon.svg": "/static/media/gem-icon.58f46a78ab06750abcd8eb87736caa0c.svg",
     "index.html": "/index.html"
   },
   "entrypoints": [
     "static/css/main.d5d43f97.css",
-    "static/js/main.8bb97eaf.js"
+    "static/js/main.ccff11ec.js"
   ]
 }
