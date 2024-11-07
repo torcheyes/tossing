@@ -18,6 +18,8 @@ const dropBallLimiter = rateLimit({
     store: new rateLimit.MemoryStore(),
     max: 1,
     windowMs: 300,
+    standardHeaders: true, 
+    legacyHeaders: false,
     handler: (req, res, next) => {
         const timeLeft = (req.rateLimit.resetTime - Date.now()) / 1000
         res.status(429).json({
@@ -25,6 +27,9 @@ const dropBallLimiter = rateLimit({
             timeLeft: timeLeft > 0 ? timeLeft : 0,
         })
     },
+    keyGenerator: function(req) {
+        return String(req.userData.id)
+    }
 })
 
 function generateRandomId(length) {
