@@ -134,11 +134,11 @@ router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
         }
         activeSeed.nonce += 1
     
-        //const percentages = chancesValues[risk][rows]
-        const percentages = []
+        const percentages = chancesValues[risk][rows]
+        /*const percentages = []
         payoutValues[risk][rows].forEach( v => {
             percentages.push(30/v)
-        } )
+        } )*/
         //console.log(JSON.stringify(percentages, null, 4))
         const { resultIndex } = generatePlinkoEndPos(activeSeed.serverSeed, activeSeed.clientSeed, activeSeed.nonce, percentages)
         const dropIndex = dropCords[resultIndex+1][Math.floor(Math.random() * dropCords[resultIndex+1].length)]
