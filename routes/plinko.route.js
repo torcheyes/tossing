@@ -8,6 +8,7 @@ const { db } = require("../handler")
 const { authJwt } = require('../middlewares/authJwt')
 const payoutValues = require('../storage/plinkoPayouts.json')
 const chancesValues = require('../storage/plinkoChances.json')
+const dropCords = require('../storage/plinkoDropCords.json')
 
 
 const User = db.user
@@ -47,22 +48,6 @@ function generateServerSeed() {
       seedHash,
     }
 }
-
-const generatePlinkoDir = (serverSeed, clientSeed, index, nonce) => {
-    const gameSeed = `${serverSeed}${clientSeed}${index}${nonce}`
-    const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex')
-    const resultNumber = parseInt(gameHash.substring(0, 13), 16)
-    const result = resultNumber % 2 === 0 ? 'R' : 'L'
-    return { result, gameHash }
-}
-  
-const generatePlinkoStartPos = (serverSeed, clientSeed, nonce) => {
-    const gameSeed = `${serverSeed}${clientSeed}${nonce}`
-    const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex')
-    const resultNumber = parseInt(gameHash.substring(0, 13), 16)
-    const result = resultNumber % 3
-    return { result, gameHash }
-}
   
 const generatePlinkoEndPos = (serverSeed, clientSeed, nonce, percentages) => {
     const gameSeed = `${serverSeed}${clientSeed}${nonce}`;
@@ -84,31 +69,7 @@ const generatePlinkoEndPos = (serverSeed, clientSeed, nonce, percentages) => {
   
     return { resultIndex, gameHash };
 }
-  
-const generatePlinkoPath = (serverSeed, clientSeed, nonce, rows, percentages) => {
-        const { resultIndex } = generatePlinkoEndPos(serverSeed, clientSeed, nonce, percentages);
-        const { result: startPos } = generatePlinkoStartPos(serverSeed, clientSeed, nonce);
-        
-        const path = []
-        let currentPos = Math.round(rows / 2) + startPos
-    
-        for (let i = 0; i < rows; i++) {
-        if (Math.floor(currentPos) - 1 < resultIndex) {
-            path.push('R');
-            currentPos += .5
-        } else if (Math.floor(currentPos) - 1 > resultIndex) {
-            path.push('L');
-            currentPos -= .5
-        } else {
-            const randomMove = generatePlinkoDir(serverSeed, clientSeed, i, nonce).result
-            path.push(randomMove)
-            if( randomMove === 'R' ) currentPos += .5
-            else currentPos -= .5
-        }
-    }
-  
-    return { startPos, path, finalPos: Math.floor(currentPos) - 1 }
-}
+
 
 router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
     let resSent
@@ -116,12 +77,13 @@ router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
         const userData = req.userData;
         const { rows, risk, betAmount } = req.body;
 
-        return res.status(400).json({error: 'Plinko is under maintenance'})
+        //return res.status(400).json({error: 'Plinko is under maintenance'})
     
-        if (!betAmount || Number(betAmount) < 0.25) return res.status(400).json({ error: 'Minimum wager is 1$' });
+        if (!betAmount || isNaN(betAmount) || Number(betAmount) < 0.25) return res.status(400).json({ error: 'Minimum wager is 1$' });
         if ( Number(betAmount) > 10) return res.status(400).json({ error: 'Maximum wager is 10$' });
         if (!['low', 'medium', 'high'].includes(risk)) return res.status(400).json({ error: 'Invalid parameters' });
-        if (!rows || rows < 8 || rows > 16) return res.status(400).json({ error: 'Invalid parameters' });
+        //if (!rows || rows < 8 || rows > 16) return res.status(400).json({ error: 'Invalid parameters' });
+        if (!rows || rows !== 16) return res.status(400).json({ error: 'Invalid parameters' });
     
         const balances = await User.find({ 
             $or: [
@@ -172,9 +134,15 @@ router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
         }
         activeSeed.nonce += 1
     
-        const percentages = chancesValues[risk][rows];
-        const endPos = generatePlinkoPath(activeSeed.serverSeed, activeSeed.clientSeed, activeSeed.nonce, rows, percentages);
-        const multiplier = payoutValues?.[risk]?.[rows]?.[endPos.finalPos];
+        //const percentages = chancesValues[risk][rows]
+        const percentages = []
+        payoutValues[risk][rows].forEach( v => {
+            percentages.push(30/v)
+        } )
+        //console.log(JSON.stringify(percentages, null, 4))
+        const { resultIndex } = generatePlinkoEndPos(activeSeed.serverSeed, activeSeed.clientSeed, activeSeed.nonce, percentages)
+        const dropIndex = dropCords[resultIndex+1][Math.floor(Math.random() * dropCords[resultIndex+1].length)]
+        const multiplier = payoutValues?.[risk]?.[rows]?.[resultIndex]
     
         if (multiplier === undefined) {
             return res.status(400).json({ error: 'Something went wrong' });
@@ -201,9 +169,7 @@ router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
     
         const gameId = generateRandomId(32);
         res.status(200).json({
-            path: endPos.path,
-            startPos: endPos.startPos,
-            finalPos: endPos.finalPos,
+            dropIndex: dropIndex,
             gameInfo: {
                 id: gameId,
                 ownerId: String(userData.id),

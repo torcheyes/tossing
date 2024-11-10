@@ -106,7 +106,7 @@ router.post('/active-bet', authJwt, async (req, res) => {
         })
     } catch ( err ) {
         console.error( err )
-        res.status(500).json({ message: 'Internal server error' })
+        res.status(500).json({ error: 'Internal server error' })
     }
 })
 
@@ -123,20 +123,12 @@ router.post('/create-bet', authJwt, async (req, res) => {
         if (!betAmount || Number(betAmount) < 0.25) return res.status(400).json({ error: 'Minimum wager is 0.25$' });
         if ( Number(betAmount) > 10) return res.status(400).json({ error: 'Maximum wager is 10$' });
         if( isNaN(minesCount) || minesCount > 24 || minesCount < 1 ) return res.status(400).json({ error: 'Invalid request data' })
-
-        const balances = await User.find({ 
-            $or: [
-                {casinoBot: true},
-                {userId: String(userData.id)}
-            ]
-        }).select('balance').lean()
     
-        const user = balances[1]
-        const botUser = balances[0]
-
+        const user = await User.findOne({userId: String(userData.id)}).select('balance').lean()
         if (!user) return res.status(400).json({ error: 'Unauthorized access' });
         if (Number(betAmount) > user.balance) return res.status(400).json({ error: 'Insufficient balance' });
     
+        const botUser = await User.findOne({casinoBot: true}).select('balance').lean()
         if(!botUser) return res.status(400).json({ error: 'Bot user not found' });
         if( Number(betAmount) > botUser.balance ) return res.status(400).json({ error: 'Insufficient house balance' });
 
@@ -182,7 +174,7 @@ router.post('/create-bet', authJwt, async (req, res) => {
             }
         })
 
-        await User.updateOne({_id: user._id}, { $inc: { balance: -betAmount } })
+        await User.findOneAndUpdate({userId: String(userData.id)}, { $inc: { balance: -Number(betAmount) } })
 
         res.status(200).json({
             active: true,
@@ -207,12 +199,14 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
         const userData = req.userData
 
         const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true})
-        if(!foundGame) return res.status(400).json({ message: 'Game not found' })
+        if(!foundGame) return res.status(400).json({ error: 'Game not found' })
 
         /*const user = await User.find({userId: String(userData.id)}).select('balance').lean()
         if (!user) return res.status(400).json({ error: 'Unauthorized access' })*/
 
         const { fields } = req.body
+
+        if( fields.length > (25 - foundGame.gameData.minesCount) ) return res.status(400).json({ error: 'Too many fields' })
 
         const gameMinesMap = foundGame.gameData.minesMap
 
@@ -269,6 +263,8 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                     totalPlayed: 1
                 }
             })
+
+            await User.updateOne({ casinoBot: true }, { $inc: { balance: foundGame.amount } })
             
             return res.status(200).json({
                 active: false,
@@ -295,7 +291,8 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                     totalWagered: Number(foundGame.amount),
                     totalWon: 1,
                     totalPlayed: 1,
-                    balance: Number(wonAmount)
+                    balance: Number(wonAmount),
+                    totalWinAmt: Number(wonAmount)
                 }
             })
         
@@ -313,6 +310,7 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                 }
             )
 
+            await User.updateOne({ casinoBot: true }, { $inc: { balance: -wonAmount } })
 
             return res.status(200).json({
                 active: false,
@@ -375,14 +373,15 @@ router.post('/bet-cashout', authJwt, async (req, res) => {
     } )
 
     const fullPayout = minesWinRates[foundGame.gameData.minesCount][playedRounds]
-    const wonAmount = foundGame.amount * fullPayout
+    const wonAmount = Number(foundGame.amount) * fullPayout
 
     await db["user"].updateOne({ userId: String(userData.id) }, {
         $inc: {
             totalWagered: Number(foundGame.amount),
             totalWon: 1,
             totalPlayed: 1,
-            balance: Number(wonAmount)
+            balance: Number(wonAmount),
+            totalWinAmt: Number(wonAmount)
         }
     })
 
@@ -409,6 +408,8 @@ router.post('/bet-cashout', authJwt, async (req, res) => {
             rounds: foundGame.gameData.rounds
         }
     })
+
+    await User.updateOne({ casinoBot: true }, { $inc: { balance: -wonAmount } })
 })
 
 module.exports = router
