@@ -377,6 +377,7 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
 
             return res.status(200).json({
                 active: false,
+                _id: foundGame._id,
                 id: foundGame.id,
                 amount: Number(foundGame.amount),
                 game: 'mines',
@@ -400,6 +401,7 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
         
         res.status(200).json({
             active: true,
+            _id: foundGame._id,
             id: foundGame.id,
             amount: Number(foundGame.amount),
             game: 'mines',
@@ -472,6 +474,7 @@ router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
 
     res.status(200).json({
         active: false,
+        _id: foundGame._id,
         id: foundGame.id,
         amount: Number(foundGame.amount),
         game: 'mines',

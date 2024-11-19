@@ -62,14 +62,16 @@ function playDealerTurns(dealerCards, shuffledDeck, dealerHiddenCard) {
 }
 
 function xmur3(str) {
-    for(var i = 0, h = 1779033703 ^ str.length; i < str.length; i++)
-        h = Math.imul(h ^ str.charCodeAt(i), 3432918353),
-        h = h << 13 | h >>> 19
-    return function() {
-        h = Math.imul(h ^ h >>> 16, 2246822507)
-        h = Math.imul(h ^ h >>> 13, 3266489909)
-        return (h ^= h >>> 16) >>> 0
+    let h = 1779033703 ^ str.length;
+    for (let i = 0; i < str.length; i++) {
+        h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+        h = (h << 13) | (h >>> 19);
     }
+    return function () {
+        h = Math.imul(h ^ (h >>> 16), 2246822507);
+        h = Math.imul(h ^ (h >>> 13), 3266489909);
+        return (h ^= h >>> 16) >>> 0;
+    };
 }
 
 function shuffleDeck(deck, serverSeed, clientSeed, nonce) {
@@ -382,9 +384,9 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             delete spamCache.bet[userData.id]
             return res.status(400).json({ error: 'Minimum wager is 0.25$' })
         }
-        if ( Number(betAmount) > 10) {
+        if ( Number(betAmount) > 5) {
             delete spamCache.bet[userData.id]
-            return res.status(400).json({ error: 'Maximum wager is 10$' })
+            return res.status(400).json({ error: 'Maximum wager is 5$' })
         }
 
         const user = await User.findOne({userId: String(userData.id)}).select('balance').lean()
@@ -432,7 +434,6 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
         foundSeedDoc.nonce += 1
 
         await db['activeSeed'].updateOne({ _id: foundSeedDoc._id }, { nonce: foundSeedDoc.nonce })
-
 
         const shuffledDeck = shuffleDeck([...deck], foundSeedDoc.serverSeed, foundSeedDoc.clientSeed, foundSeedDoc.nonce)
 

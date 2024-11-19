@@ -29,9 +29,13 @@ const minesRoute = require('./routes/mines.route')
 const blackjackRoute = require('./routes/blackjack.route')
 
 
+const maintenance = (req, res) => {
+  return res.status(400).json({error: 'This route is under maintenance'})
+}
+
 app.use( '/api', apiRoute )
-app.use( '/api/plinko', plinkoRoute )
-app.use( '/api/mines', minesRoute )
+app.use( '/api/plinko', maintenance, plinkoRoute )
+app.use( '/api/mines', maintenance, minesRoute )
 app.use( '/api/blackjack', blackjackRoute )
 
 
