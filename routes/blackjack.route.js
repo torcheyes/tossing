@@ -384,9 +384,9 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             delete spamCache.bet[userData.id]
             return res.status(400).json({ error: 'Minimum wager is 0.25$' })
         }
-        if ( Number(betAmount) > 5) {
+        if ( Number(betAmount) > 25) {
             delete spamCache.bet[userData.id]
-            return res.status(400).json({ error: 'Maximum wager is 5$' })
+            return res.status(400).json({ error: 'Maximum wager is 25$' })
         }
 
         const user = await User.findOne({userId: String(userData.id)}).select('balance').lean()
