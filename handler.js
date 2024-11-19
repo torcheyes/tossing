@@ -1,9 +1,8 @@
 const TelegramBot = require('node-telegram-bot-api')
 const mongoose = require("mongoose")
-const { Schema, model } = require("mongoose");
+const { Schema, model } = require("mongoose")
 
-//const bot = new TelegramBot(process.env?.TELE_TOKEN||process.env?.DEV_TELE_TOKEN, { polling: false })
-const bot = {}
+const bot = new TelegramBot(process.env?.TELE_TOKEN||process.env?.DEV_TELE_TOKEN, { polling: false })
 
 function loadDatabases() {
     const bot = model(`bot`, new Schema({

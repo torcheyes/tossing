@@ -77,7 +77,7 @@ router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
         const userData = req.userData;
         const { rows, risk, betAmount } = req.body;
 
-        //return res.status(400).json({error: 'Plinko is under maintenance'})
+        return res.status(400).json({error: 'Plinko is under maintenance'})
     
         if (!betAmount || isNaN(betAmount) || Number(betAmount) < 0.25) return res.status(400).json({ error: 'Minimum wager is 1$' });
         if ( Number(betAmount) > 10) return res.status(400).json({ error: 'Maximum wager is 10$' });

@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit')
 
 const { db } = require("../handler")
 const { authJwt } = require('../middlewares/authJwt')
+const { handleWinReport } = require('../helpers')
 
 const User = db.user
 const Game = db.game
@@ -62,6 +63,24 @@ const createMinesweeperArray = (minesCount, serverSeed, clientSeed, nonce) => {
     return { array, gameHash }
 }
 
+const spamLimiter = rateLimit({
+    store: new rateLimit.MemoryStore(),
+    max: 1,
+    windowMs: 500,
+    standardHeaders: true, 
+    legacyHeaders: false,
+    handler: (req, res, next) => {
+        const timeLeft = (req.rateLimit.resetTime - Date.now()) / 1000
+        res.status(429).json({
+            error: 'This action cannot be performed due to slowmode rate limit.',
+            timeLeft: timeLeft > 0 ? timeLeft : 0,
+        })
+    },
+    keyGenerator: function(req) {
+        return String(req.userData.id)
+    }
+})
+
 const moveLimiter = rateLimit({
     store: new rateLimit.MemoryStore(),
     max: 1,
@@ -80,7 +99,7 @@ const moveLimiter = rateLimit({
     }
 })
 
-router.post('/active-bet', authJwt, async (req, res) => {
+router.post('/active-bet', authJwt, spamLimiter, async (req, res) => {
     try {
         const userData = req.userData
 
@@ -111,27 +130,62 @@ router.post('/active-bet', authJwt, async (req, res) => {
 })
 
 
-router.post('/create-bet', authJwt, async (req, res) => {
+const spamCache = {
+    bet: {},
+    cashout: {},
+    move: {}
+}
+
+router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
     try {
         const userData = req.userData
 
+        if( spamCache.bet[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
+        spamCache.bet[userData.id] = true
+
         const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true})
-        if(foundGame) return res.status(400).json({ error: 'already playing' })
+        if(foundGame) {
+            delete spamCache.bet[userData.id]
+            return res.status(400).json({ error: 'already playing' })
+        }
+
 
         const { betAmount, minesCount } = req.body
 
-        if (!betAmount || Number(betAmount) < 0.25) return res.status(400).json({ error: 'Minimum wager is 0.25$' });
-        if ( Number(betAmount) > 10) return res.status(400).json({ error: 'Maximum wager is 10$' });
-        if( isNaN(minesCount) || minesCount > 24 || minesCount < 1 ) return res.status(400).json({ error: 'Invalid request data' })
+        if (!betAmount || isNaN(betAmount) || Number(betAmount) < 0.25) {
+            delete spamCache.bet[userData.id]
+            return res.status(400).json({ error: 'Minimum wager is 0.25$' })
+        }
+        if ( Number(betAmount) > 10) {
+            delete spamCache.bet[userData.id]
+            return res.status(400).json({ error: 'Maximum wager is 10$' })
+        }
+        if( isNaN(minesCount) || minesCount > 24 || minesCount < 1 ) {
+            delete spamCache.bet[userData.id]
+            return res.status(400).json({ error: 'Invalid request data' })
+        }
     
         const user = await User.findOne({userId: String(userData.id)}).select('balance').lean()
-        if (!user) return res.status(400).json({ error: 'Unauthorized access' });
-        if (Number(betAmount) > user.balance) return res.status(400).json({ error: 'Insufficient balance' });
+        if (!user) {
+            delete spamCache.bet[userData.id]
+            return res.status(400).json({ error: 'Unauthorized access' })
+        }
+        if (Number(betAmount) > user.balance) {
+            delete spamCache.bet[userData.id]
+            return res.status(400).json({ error: 'Insufficient balance' })
+        }
     
         const botUser = await User.findOne({casinoBot: true}).select('balance').lean()
-        if(!botUser) return res.status(400).json({ error: 'Bot user not found' });
-        if( Number(betAmount) > botUser.balance ) return res.status(400).json({ error: 'Insufficient house balance' });
+        if(!botUser) {
+            delete spamCache.bet[userData.id]
+            return res.status(400).json({ error: 'Bot user not found' })
+        }
+        if( Number(betAmount) > botUser.balance ) {
+            delete spamCache.bet[userData.id]
+            return res.status(400).json({ error: 'Insufficient house balance' })
+        }
 
+        await User.findOneAndUpdate({userId: String(userData.id)}, { $inc: { balance: -Number(betAmount) } })
 
         let foundSeedDoc = await db['activeSeed'].findOne({ userId: String(userData.id) })
         if (!foundSeedDoc) {
@@ -156,7 +210,7 @@ router.post('/create-bet', authJwt, async (req, res) => {
 
         const minesMap = createMinesweeperArray(minesCount, foundSeedDoc.serverSeed, foundSeedDoc.clientSeed, foundSeedDoc.nonce).array        
 
-        const gameId = generateRandomId(32);
+        const gameId = generateRandomId(32)
         await Game.create({
             active: true,
             id: gameId,
@@ -174,7 +228,7 @@ router.post('/create-bet', authJwt, async (req, res) => {
             }
         })
 
-        await User.findOneAndUpdate({userId: String(userData.id)}, { $inc: { balance: -Number(betAmount) } })
+        delete spamCache.bet[userData.id]
 
         res.status(200).json({
             active: true,
@@ -198,9 +252,16 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
     try {
         const userData = req.userData
 
+        if( spamCache.move[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
+        spamCache.move[userData.id] = true
+
+        setTimeout( () => {
+            delete spamCache.move[userData.id]
+        }, 300 )
+
         const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true})
         if(!foundGame) return res.status(400).json({ error: 'Game not found' })
-
+        
         /*const user = await User.find({userId: String(userData.id)}).select('balance').lean()
         if (!user) return res.status(400).json({ error: 'Unauthorized access' })*/
 
@@ -312,6 +373,8 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
 
             await User.updateOne({ casinoBot: true }, { $inc: { balance: -wonAmount } })
 
+            handleWinReport(userData, 'mines', foundGame.amount, fullPayout)
+
             return res.status(200).json({
                 active: false,
                 id: foundGame.id,
@@ -328,13 +391,12 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
         }
         
         await Game.updateOne( { _id: foundGame._id }, {
-                $push: {
-                    'gameData.rounds': {
-                        $each: newFields
-                    }
+            $push: {
+                'gameData.rounds': {
+                    $each: newFields
                 }
             }
-        )
+        })
         
         res.status(200).json({
             active: true,
@@ -356,14 +418,23 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
     }
 })
 
-router.post('/bet-cashout', authJwt, async (req, res) => {
+router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
     const userData = req.userData
 
+    if( spamCache.cashout[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
+    spamCache.cashout[userData.id] = true
+
     const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true})
-    if(!foundGame) return res.status(400).json({ error: 'Game not found' })
+    if(!foundGame) {
+        delete spamCache.cashout[userData.id]
+        return res.status(400).json({ error: 'Game not found' })
+    }
 
     const playedRounds = [...foundGame.gameData.rounds].length
-    if(playedRounds === 0) return res.status(400).json({ error: 'Cannot cashout now.' })
+    if(playedRounds === 0) {
+        delete spamCache.cashout[userData.id]
+        return res.status(400).json({ error: 'Cannot cashout now.' })
+    }
 
     const gameMinesMap = foundGame.gameData.minesMap
 
@@ -394,6 +465,10 @@ router.post('/bet-cashout', authJwt, async (req, res) => {
             }
         }
     )
+
+    handleWinReport(userData, 'mines', foundGame.amount, fullPayout)
+
+    delete spamCache.cashout[userData.id]
 
     res.status(200).json({
         active: false,

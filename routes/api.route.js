@@ -62,7 +62,7 @@ router.post('/game-seed', authJwt, async(req, res) => {
     const {gameId, gameName} = req.body
     const userData = req.userData
   
-    const foundGame = await db['game'].findOne({game: gameName, id: gameId, ownerId: String(userData.id)}).select('gameData')
+    const foundGame = await db['game'].findOne({active: false, game: gameName, id: gameId, ownerId: String(userData.id)}).select('gameData')
     if( !foundGame ) return res.status(400).json({error: 'Game not found'})
   
     res.status(200).json({game: foundGame})

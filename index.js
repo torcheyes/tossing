@@ -26,10 +26,13 @@ app.use(express.urlencoded({ extended: true }))
 const apiRoute = require('./routes/api.route')
 const plinkoRoute = require('./routes/plinko.route')
 const minesRoute = require('./routes/mines.route')
+const blackjackRoute = require('./routes/blackjack.route')
+
 
 app.use( '/api', apiRoute )
 app.use( '/api/plinko', plinkoRoute )
 app.use( '/api/mines', minesRoute )
+app.use( '/api/blackjack', blackjackRoute )
 
 
 app.use(express.static(path.join(__dirname, 'build')))
