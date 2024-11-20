@@ -46,6 +46,9 @@ const authJwt = async (req, res, next) => {
     const parsedQuery = querystring.parse(userQuery)
     const userData = JSON.parse(parsedQuery.user)
 
+    const user = await User.findOne({userId: String(userData.id)}).select('appban').lean()
+    if(!user) return res.status( 400 ).json({error: 'Unauthorised access'})
+    if(user?.appban) return res.status( 400 ).json({error: 'You are banned from using the app.'})
 
     const x_tokenHash = req.headers?.['x-token']?.trim()
     const foundUserHash = globalThis?.usersHashCache[String(userData.id)]

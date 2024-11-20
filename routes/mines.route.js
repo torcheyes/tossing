@@ -99,11 +99,17 @@ const moveLimiter = rateLimit({
     }
 })
 
+const spamCache = {
+    bet: {},
+    cashout: {},
+    move: {}
+}
+
 router.post('/active-bet', authJwt, spamLimiter, async (req, res) => {
     try {
         const userData = req.userData
 
-        const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true}).select('id amount multiplayer gameData').lean()
         if(!foundGame) return res.status(200).json({
             activeCasinoBet: null
         })
@@ -128,13 +134,6 @@ router.post('/active-bet', authJwt, spamLimiter, async (req, res) => {
         res.status(500).json({ error: 'Internal server error' })
     }
 })
-
-
-const spamCache = {
-    bet: {},
-    cashout: {},
-    move: {}
-}
 
 router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
     try {
@@ -187,7 +186,7 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
 
         await User.findOneAndUpdate({userId: String(userData.id)}, { $inc: { balance: -Number(betAmount) } })
 
-        let foundSeedDoc = await db['activeSeed'].findOne({ userId: String(userData.id) })
+        let foundSeedDoc = await db['activeSeed'].findOne({ userId: String(userData.id) }).lean()
         if (!foundSeedDoc) {
             const newClientSeed = crypto.randomBytes(16).toString('hex')
             const newServerSeed = generateServerSeed()
@@ -243,6 +242,7 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             }
         })
     } catch ( err ) {
+        delete spamCache.bet[userData.id]
         console.error( err )
         res.status(500).json({ error: 'Internal server error' })
     }
@@ -259,7 +259,7 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
             delete spamCache.move[userData.id]
         }, 300 )
 
-        const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true}).select('id amount gameData').lean()
         if(!foundGame) return res.status(400).json({ error: 'Game not found' })
         
         /*const user = await User.find({userId: String(userData.id)}).select('balance').lean()
@@ -314,6 +314,9 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                         'multiplayer': 0,
                         'active': false
                     },
+                    $unset: {
+                        'gameData.minesMap': 1
+                    }
                 }
             )
 
@@ -329,6 +332,7 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
             
             return res.status(200).json({
                 active: false,
+                _id: foundGame._id,
                 id: foundGame.id,
                 amount: Number(foundGame.amount),
                 game: 'mines',
@@ -367,6 +371,9 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                         'gameData.mines': minesPoses,
                         'multiplayer': fullPayout,
                         'active': false
+                    },
+                    $unset: {
+                        'gameData.minesMap': 1
                     }
                 }
             )
@@ -426,7 +433,7 @@ router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
     if( spamCache.cashout[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
     spamCache.cashout[userData.id] = true
 
-    const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true})
+    const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true}).select('id amount gameData').lean()
     if(!foundGame) {
         delete spamCache.cashout[userData.id]
         return res.status(400).json({ error: 'Game not found' })
@@ -464,6 +471,9 @@ router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
                 'payout': wonAmount,
                 'multiplayer': fullPayout,
                 'active': false
+            },
+            $unset: {
+                'gameData.minesMap': 1
             }
         }
     )

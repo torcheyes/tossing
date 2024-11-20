@@ -101,7 +101,10 @@ function loadDatabases() {
 
 const connectMongoose = async () => {
     return new Promise( resolve => {
-        mongoose.connect(process.env?.MONGO_URI||process.env?.DEV_MONGO_URI)
+        mongoose.connect(process.env?.MONGO_URI||process.env?.DEV_MONGO_URI, {
+            useNewUrlParser: true,
+            autoIndex: true,
+        })
             .then(async () => {
                 console.log(`Connected to mongodb`)
                 resolve(true)

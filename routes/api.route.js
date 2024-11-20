@@ -22,7 +22,7 @@ function generateServerSeed() {
 router.post('/user-state', stateAuthJwt, async(req, res) => {
   const userData = req.userData
 
-  const user = await User.findOne({userId: String(userData.id)})
+  const user = await User.findOne({userId: String(userData.id)}).select('balance appban').lean()
   if(!user) return res.status( 400 ).json({error: 'Unauthorised access'})
 
   if(user?.appban) return res.status( 200 ).json({banned: true, error: 'You are banned from using the app.'})
@@ -51,7 +51,7 @@ router.post('/user-state', stateAuthJwt, async(req, res) => {
 router.get('/active-seed', authJwt, async(req, res) => {
   const userData = req.userData
 
-  let activeSeed = await db['activeSeed'].findOne({userId: String(userData.id)}).select('clientSeed serverSeedHashed nonce')
+  let activeSeed = await db['activeSeed'].findOne({userId: String(userData.id)}).select('clientSeed serverSeedHashed nonce').lean()
   if( !activeSeed ) {
     const newClientSeed = crypto.randomBytes(16).toString('hex')
     const newServerSeed = generateServerSeed()
@@ -80,8 +80,8 @@ router.get('/active-seed', authJwt, async(req, res) => {
 router.post('/game-seed', authJwt, async(req, res) => {
     const {gameId, gameName} = req.body
     const userData = req.userData
-  
-    const foundGame = await db['game'].findOne({active: false, game: gameName, _id: gameId, ownerId: String(userData.id)}).select('gameData')
+    
+    const foundGame = await db['game'].findOne({active: false, game: gameName, _id: gameId, ownerId: String(userData.id)}).select('gameData').lean()
     if( !foundGame ) return res.status(400).json({error: 'Game not found'})
   
     res.status(200).json({game: foundGame})

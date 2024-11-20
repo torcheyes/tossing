@@ -345,7 +345,7 @@ router.post('/active-bet', authJwt, spamLimiter, async (req, res) => {
     try {
         const userData = req.userData
 
-        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true}).select('id amount multiplayer gameData').lean()
         if(!foundGame) return res.status(200).json({
             activeCasinoBet: null
         })
@@ -353,6 +353,7 @@ router.post('/active-bet', authJwt, spamLimiter, async (req, res) => {
         res.status(200).json({
             activeCasinoBet: {
                 active: true,
+                _id: foundGame._id,
                 id: foundGame.id,
                 amount: Number(foundGame.amount),
                 multiplayer: foundGame.multiplayer,
@@ -377,7 +378,7 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
         if( spamCache.bet[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
         spamCache.bet[userData.id] = true
 
-        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.exists({game: 'blackjack', ownerId: String(userData.id), active: true})
         if(foundGame) {
             delete spamCache.bet[userData.id]
             return res.status(400).json({ error: 'already playing' })
@@ -419,7 +420,7 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             { $inc: { balance: -Number(betAmount) } }
         )
 
-        let foundSeedDoc = await db['activeSeed'].findOne({ userId: String(userData.id) })
+        let foundSeedDoc = await db['activeSeed'].findOne({ userId: String(userData.id) }).lean()
         if (!foundSeedDoc) {
             const newClientSeed = crypto.randomBytes(16).toString('hex')
             const newServerSeed = generateServerSeed()
@@ -499,8 +500,12 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
                         value: firstBjActions.playerValue
                     }
                 ],
-                dealerHiddenCard: dealerHiddenCard,
-                shuffledDeck: shuffledDeck,
+                ...(
+                    firstBjActions.active ? {
+                        shuffledDeck,
+                        dealerHiddenCard
+                    } : {}
+                ),
                 clientSeed: foundSeedDoc.clientSeed,
                 serverSeedHashed: foundSeedDoc.serverSeedHashed,
                 nonce: foundSeedDoc.nonce
@@ -550,7 +555,7 @@ router.post('/action-hit', authJwt, moveLimiter, async (req, res) => {
         if( spamCache.hit[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
         spamCache.hit[userData.id] = true
 
-        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true}).select('amount gameData').lean()
         if(!foundGame) {
             delete spamCache.hit[userData.id]
             return res.status(400).json({ error: 'Game not found' })
@@ -743,9 +748,19 @@ router.post('/action-hit', authJwt, moveLimiter, async (req, res) => {
             if( updateData.multiplayer > 1 ) {
                 handleWinReport(userData, 'blackjack', foundGame.amount, updateData.multiplayer)
             }
+
+            updateData = {
+                ...updateData,
+                $unset: {
+                    'gameData.shuffledDeck': 1,
+                    'gameData.dealerHiddenCard': 1
+                }
+            }
+        } else {
+            updateData['gameData.shuffledDeck'] = shuffledDeck
         }
 
-        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData, ['gameData.shuffledDeck']: shuffledDeck}, {new: true})
+        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData}, {new: true})
             .select('active ownerId amount multiplayer game gameData.dealer gameData.player')
             .lean()
 
@@ -765,7 +780,7 @@ router.post('/action-stand', authJwt, moveLimiter, async (req, res) => {
         if( spamCache.stand[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
         spamCache.stand[userData.id] = true
 
-        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true}).select('amount gameData').lean()
         if(!foundGame) {
             delete spamCache.stand[userData.id]
             return res.status(400).json({ error: 'Game not found' })
@@ -857,9 +872,19 @@ router.post('/action-stand', authJwt, moveLimiter, async (req, res) => {
             if( updateData.multiplayer > 1 ) {
                 handleWinReport(userData, 'blackjack', foundGame.amount, updateData.multiplayer)
             }
+
+            updateData = {
+                ...updateData,
+                $unset: {
+                    'gameData.shuffledDeck': 1,
+                    'gameData.dealerHiddenCard': 1
+                }
+            }
+        } else {
+            updateData['gameData.shuffledDeck'] = shuffledDeck
         }
 
-        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData, ['gameData.shuffledDeck']: shuffledDeck}, {new: true})
+        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData}, {new: true})
             .select('active ownerId amount multiplayer game gameData.dealer gameData.player')
             .lean()
 
@@ -879,7 +904,7 @@ router.post('/action-split', authJwt, moveLimiter, async (req, res) => {
         if( spamCache.split[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
         spamCache.split[userData.id] = true
 
-        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true}).select('amount gameData').lean()
         if(!foundGame) {
             delete spamCache.split[userData.id]
             return res.status(400).json({ error: 'Game not found' })
@@ -1056,9 +1081,19 @@ router.post('/action-split', authJwt, moveLimiter, async (req, res) => {
             if( updateData.multiplayer > 1 ) {
                 handleWinReport(userData, 'blackjack', foundGame.amount, updateData.multiplayer)
             }
+
+            updateData = {
+                ...updateData,
+                $unset: {
+                    'gameData.shuffledDeck': 1,
+                    'gameData.dealerHiddenCard': 1
+                }
+            }
+        } else {
+            updateData['gameData.shuffledDeck'] = shuffledDeck
         }
 
-        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData, ['gameData.shuffledDeck']: shuffledDeck}, {new: true})
+        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData}, {new: true})
             .select('active ownerId amount multiplayer game gameData.dealer gameData.player')
             .lean()
 
@@ -1078,7 +1113,7 @@ router.post('/action-insurance', authJwt, moveLimiter, async (req, res) => {
         if( spamCache.insurance[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
         spamCache.insurance[userData.id] = true
 
-        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true}).select('amount gameData').lean()
         if(!foundGame) {
             delete spamCache.insurance[userData.id]
             return res.status(400).json({ error: 'Game not found' })
@@ -1196,11 +1231,19 @@ router.post('/action-insurance', authJwt, moveLimiter, async (req, res) => {
             if( updateData.multiplayer > 1 ) {
                 handleWinReport(userData, 'blackjack', foundGame.amount, updateData.multiplayer)
             }
+
+            updateData = {
+                ...updateData,
+                $unset: {
+                    'gameData.shuffledDeck': 1,
+                    'gameData.dealerHiddenCard': 1
+                }
+            }
         } else {
-            shuffledDeck.push(newDealerCard)
+            updateData['gameData.shuffledDeck'] = [...shuffledDeck, newDealerCard]
         }
 
-        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData, ['gameData.shuffledDeck']: shuffledDeck}, {new: true})
+        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData}, {new: true})
             .select('active ownerId amount multiplayer game gameData.dealer gameData.player')
             .lean()
 
@@ -1220,7 +1263,7 @@ router.post('/action-no-insurance', authJwt, moveLimiter, async (req, res) => {
         if( spamCache.noInsurance[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
         spamCache.noInsurance[userData.id] = true
 
-        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true}).select('amount gameData').lean()
         if(!foundGame) {
             delete spamCache.noInsurance[userData.id]
             return res.status(400).json({ error: 'Game not found' })
@@ -1317,11 +1360,19 @@ router.post('/action-no-insurance', authJwt, moveLimiter, async (req, res) => {
             if( updateData.multiplayer > 1 ) {
                 handleWinReport(userData, 'blackjack', foundGame.amount, updateData.multiplayer)
             }
+
+            updateData = {
+                ...updateData,
+                $unset: {
+                    'gameData.shuffledDeck': 1,
+                    'gameData.dealerHiddenCard': 1
+                }
+            }
         } else {
-            shuffledDeck.push(newDealerCard)
+            updateData['gameData.shuffledDeck'] = [...shuffledDeck, newDealerCard]
         }
 
-        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData, ['gameData.shuffledDeck']: shuffledDeck}, {new: true})
+        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData}, {new: true})
             .select('active ownerId amount multiplayer game gameData.dealer gameData.player')
             .lean()
 
@@ -1341,7 +1392,7 @@ router.post('/action-double', authJwt, moveLimiter, async (req, res) => {
         if( spamCache.double[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
         spamCache.double[userData.id] = true
 
-        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true})
+        const foundGame = await Game.findOne({game: 'blackjack', ownerId: String(userData.id), active: true}).select('amount gameData').lean()
         if(!foundGame) {
             delete spamCache.double[userData.id]
             return res.status(400).json({ error: 'Game not found' })
@@ -1471,9 +1522,19 @@ router.post('/action-double', authJwt, moveLimiter, async (req, res) => {
             if( updateData.multiplayer > 1 ) {
                 handleWinReport(userData, 'blackjack', foundGame.amount, updateData.multiplayer)
             }
+
+            updateData = {
+                ...updateData,
+                $unset: {
+                    'gameData.shuffledDeck': 1,
+                    'gameData.dealerHiddenCard': 1
+                }
+            }
+        } else {
+            updateData['gameData.shuffledDeck'] = shuffledDeck
         }
 
-        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData, ['gameData.shuffledDeck']: shuffledDeck}, {new: true})
+        const populatedGame = await Game.findByIdAndUpdate(foundGame._id, {...updateData}, {new: true})
             .select('active ownerId amount multiplayer game gameData.dealer gameData.player')
             .lean()
 
