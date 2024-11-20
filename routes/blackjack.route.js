@@ -186,7 +186,7 @@ const getFirstBjActions = (playerCards, dealerCards) => {
                 dealer: ['deal'],
                 player: ['deal', 'blackjack'],
             },
-            multiplayer: 2,
+            multiplayer: 2.5,
             dealerValue,
             playerValue
         }
