@@ -449,7 +449,7 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             {rank: 4, suit: 'C'},
             {rank: 8, suit: 'C'},
             {rank: 8, suit: 'C'},
-            {rank: 'A', suit: 'C'},
+            {rank: 10, suit: 'C'},
             {rank: 'A', suit: 'C'},
             {rank: 'J', suit: 'C'},
             {rank: 9, suit: 'C'}
@@ -475,11 +475,10 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
 
         let dealerHiddenCard = null
         if( firstBjActions.active ) {
-            //shuffledDeck.push(newDealerCards[newDealerCards.length-1])
             dealerHiddenCard = newDealerCards.pop()
         }
         
-        await Game.create({
+        const gameRes = await Game.create({
             active: firstBjActions.active,
             amount: betAmount,
             game: 'blackjack',
@@ -515,6 +514,7 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
         delete spamCache.bet[userData.id]
         
         res.status(200).json({
+            _id: gameRes._id,
             active: firstBjActions.active,
             amount: betAmount,
             game: 'blackjack',
