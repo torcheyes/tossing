@@ -208,7 +208,8 @@ const splitMultiplayers = {
     '2Win': 4,
     '1Win1Lose': 2,
     '1Win1Draw': 2.5,
-    '1Draw1Lose': 1
+    '1Draw1Lose': 1,
+    '2Draw': 2
 }
 
 function getBjSplitRes(firstHandValue, secondHandValue, dealerValue) {
@@ -252,6 +253,10 @@ function getBjSplitRes(firstHandValue, secondHandValue, dealerValue) {
         
         return {
             multiplayer: splitMultiplayers['1Win1Draw']
+        }
+    } else if ( result1 === DRAW && result2 === DRAW ) {
+        return {
+            multiplayer: splitMultiplayers['2Draw']
         }
     } else {
         return {
@@ -442,12 +447,12 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             {rank: 4, suit: 'C'},
             {rank: 4, suit: 'C'},
             {rank: 4, suit: 'C'},
+            {rank: 8, suit: 'C'},
+            {rank: 8, suit: 'C'},
+            {rank: 'A', suit: 'C'},
+            {rank: 'A', suit: 'C'},
             {rank: 'J', suit: 'C'},
-            {rank: 4, suit: 'C'},
-            {rank: 4, suit: 'C'},
-            {rank: 4, suit: 'C'},
-            {rank: 'J', suit: 'C'},
-            {rank: 'J', suit: 'C'}
+            {rank: 9, suit: 'C'}
         ]*/
 
         //console.log(shuffledDeck.map( c => c.rank ).join(', '))
@@ -957,7 +962,7 @@ router.post('/action-split', authJwt, moveLimiter, async (req, res) => {
         let updateData = {}
         let resultMultiplier
 
-        if( firstPlayerHand.cards[0].rank === 'A' && firstPlayerHand.cards[1].rank === 'A' ) {
+        /*if( firstPlayerHand.cards[0].rank === 'A' && firstPlayerHand.cards[1].rank === 'A' ) {
             const newDealerResults = playDealerTurns(firstDealerHand.cards, shuffledDeck, foundGame.gameData.dealerHiddenCard)
 
             const splitRes = getBjSplitRes(secondHandValue, firstHandValue, newDealerResults.value)
@@ -980,7 +985,7 @@ router.post('/action-split', authJwt, moveLimiter, async (req, res) => {
                 [`gameData.player.1.cards`]: newSecondHandCards,
                 [`gameData.player.1.actions`]: addSecondHandActions
             }
-        } else if( firstHandValue === 21 || secondHandValue === 21 ) {
+        } else */if( firstHandValue === 21 || secondHandValue === 21 ) {
 
             if( firstHandValue === 21 && secondHandValue !== 21 ) {
                 updateData = {
