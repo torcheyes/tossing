@@ -962,7 +962,7 @@ router.post('/action-split', authJwt, moveLimiter, async (req, res) => {
         let updateData = {}
         let resultMultiplier
 
-        /*if( firstPlayerHand.cards[0].rank === 'A' && firstPlayerHand.cards[1].rank === 'A' ) {
+        if( firstPlayerHand.cards[0].rank === 'A' && firstPlayerHand.cards[1].rank === 'A' ) {
             const newDealerResults = playDealerTurns(firstDealerHand.cards, shuffledDeck, foundGame.gameData.dealerHiddenCard)
 
             const splitRes = getBjSplitRes(secondHandValue, firstHandValue, newDealerResults.value)
@@ -985,7 +985,7 @@ router.post('/action-split', authJwt, moveLimiter, async (req, res) => {
                 [`gameData.player.1.cards`]: newSecondHandCards,
                 [`gameData.player.1.actions`]: addSecondHandActions
             }
-        } else */if( firstHandValue === 21 || secondHandValue === 21 ) {
+        } else if( firstHandValue === 21 || secondHandValue === 21 ) {
 
             if( firstHandValue === 21 && secondHandValue !== 21 ) {
                 updateData = {
