@@ -3,30 +3,49 @@ const router = express.Router()
 const crypto = require('crypto')
 
 const { db } = require("../handler")
-const { authJwt } = require('../middlewares/authJwt')
+const { authJwt, stateAuthJwt } = require('../middlewares/authJwt')
 
 const User = db.user
 
+
 function generateServerSeed() {
-    const seed = crypto.randomBytes(32).toString('hex');
-    const seedHashRaw = crypto.createHash('sha256').update(seed);
-    const seedHash = seedHashRaw.digest('hex');
-  
-    return {
-      seed,
-      seedHash,
-    }
+  const seed = crypto.randomBytes(32).toString('hex');
+  const seedHashRaw = crypto.createHash('sha256').update(seed);
+  const seedHash = seedHashRaw.digest('hex');
+
+  return {
+    seed,
+    seedHash,
+  }
 }
 
-router.post('/user-state', authJwt, async(req, res) => {
-    const userData = req.userData
+router.post('/user-state', stateAuthJwt, async(req, res) => {
+  const userData = req.userData
 
-    const user = await User.findOne({userId: String(userData.id)})
-    if(!user) return res.status( 400 ).json({error: 'Unauthorised access'})
+  const user = await User.findOne({userId: String(userData.id)})
+  if(!user) return res.status( 400 ).json({error: 'Unauthorised access'})
 
-    res.status(200).json({
-        balance: user.balance
-    })
+  if(user?.appban) return res.status( 200 ).json({banned: true, error: 'You are banned from using the app.'})
+
+  let x_tokenHash
+  const foundUserHash = globalThis?.usersHashCache[String(userData.id)]
+  
+  if( foundUserHash && Date.now() < foundUserHash?.expires ) {
+    x_tokenHash = foundUserHash.token
+    foundUserHash.expires = Date.now() + (6*1000*60)
+  } else {
+    x_tokenHash = crypto.createHash('sha256').update(`${userData.id}-${Date.now()}`).digest('base64url')
+    globalThis.usersHashCache[String(userData.id)] = {
+      token: x_tokenHash,
+      expires: Date.now() + (6*1000*60)
+    }
+  }
+  
+  res.set('x-token', x_tokenHash)
+
+  res.status(200).json({
+    balance: user.balance
+  })
 })
   
 router.get('/active-seed', authJwt, async(req, res) => {

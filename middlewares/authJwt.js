@@ -32,6 +32,7 @@ const verifyTelegramWebAppData = (telegramInitData) => {
 }
 
 const authJwt = async (req, res, next) => {
+    try {
     const authHeader = req.headers?.['authorization']
     if(!authHeader) res.status(400).json({error: 'Not authorised'})
   
@@ -39,7 +40,44 @@ const authJwt = async (req, res, next) => {
     const decodedAuth = atob(encodedAuth)
   
     const verifyRes = verifyTelegramWebAppData(decodedAuth)
-    //console.log('verifyRes:', verifyRes)
+    if(!verifyRes) return res.status(400).json({error: 'Not authorised'})
+
+    const userQuery = decodeURIComponent(decodedAuth)
+    const parsedQuery = querystring.parse(userQuery)
+    const userData = JSON.parse(parsedQuery.user)
+
+
+    const x_tokenHash = req.headers?.['x-token']?.trim()
+    const foundUserHash = globalThis?.usersHashCache[String(userData.id)]
+
+    if(
+        !x_tokenHash ||
+        !foundUserHash ||
+        foundUserHash?.token !== x_tokenHash ||
+        Date.now() >= foundUserHash?.expires
+    ) {
+        return res.status(400).json({error: 'Token expired please reload.'})
+    }
+      
+    
+    req.userData = userData
+    
+    next()
+    } catch( err ) {
+        console.error(err)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+}
+
+const stateAuthJwt = async (req, res, next) => {
+    try {
+    const authHeader = req.headers?.['authorization']
+    if(!authHeader) res.status(400).json({error: 'Not authorised'})
+  
+    const encodedAuth = authHeader.replace('Bearer ', '')
+    const decodedAuth = atob(encodedAuth)
+  
+    const verifyRes = verifyTelegramWebAppData(decodedAuth)
     if(!verifyRes) return res.status(400).json({error: 'Not authorised'})
 
     const userQuery = decodeURIComponent(decodedAuth)
@@ -49,8 +87,13 @@ const authJwt = async (req, res, next) => {
     req.userData = userData
     
     next()
+    } catch( err ) {
+        console.error(err)
+        res.status(500).json({ error: 'Internal server error' })
+    }
 }
 
 module.exports = {
-    authJwt
+    authJwt,
+    stateAuthJwt
 }

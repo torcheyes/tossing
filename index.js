@@ -6,6 +6,7 @@ const cors = require('cors')
 const path = require('path')
 require('dotenv').config()
 
+globalThis.usersHashCache = {}
 globalThis.plinkoCache = {}
 
 const { connectMongoose } = require("./handler")
@@ -16,7 +17,7 @@ const corsOptions = {
   "credentials": true,
   "preflightContinue": false,
   "optionsSuccessStatus": 204,
-  "exposedHeaders": ["set-cookie"]
+  "exposedHeaders": ["set-cookie", "x-token"]
 }
 
 app.use( cors(corsOptions) )

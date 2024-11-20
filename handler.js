@@ -86,7 +86,8 @@ function loadDatabases() {
         referral_earnings: { type: Number, default: 0 },
         referral_invited: { type: Number, default: 0 },
         referral_played: { type: Number, default: 0 },
-        casinoBot: Boolean
+        casinoBot: Boolean,
+        appban: { type: Boolean, default: false }
     }))
     return {
         bot,
