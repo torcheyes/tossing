@@ -261,9 +261,6 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
 
         const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true}).select('id amount gameData').lean()
         if(!foundGame) return res.status(400).json({ error: 'Game not found' })
-        
-        /*const user = await User.find({userId: String(userData.id)}).select('balance').lean()
-        if (!user) return res.status(400).json({ error: 'Unauthorized access' })*/
 
         const { fields } = req.body
 
@@ -311,8 +308,8 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                     },
                     $set: {
                         'gameData.mines': minesPoses,
-                        'multiplayer': 0,
-                        'active': false
+                        multiplayer: 0,
+                        active: false
                     },
                     $unset: {
                         'gameData.minesMap': 1
@@ -349,7 +346,7 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
         const playedRounds = [...foundGame.gameData.rounds, ...newFields].length
         if( 25 - foundGame.gameData.minesCount === playedRounds ) {
             const fullPayout = minesWinRates[foundGame.gameData.minesCount][playedRounds]
-            const wonAmount = foundGame.amount * fullPayout
+            const wonAmount = Number(foundGame.amount) * fullPayout
 
             await db["user"].updateOne({ userId: String(userData.id) }, {
                 $inc: {
@@ -369,8 +366,8 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                     },
                     $set: {
                         'gameData.mines': minesPoses,
-                        'multiplayer': fullPayout,
-                        'active': false
+                        multiplayer: fullPayout,
+                        active: false
                     },
                     $unset: {
                         'gameData.minesMap': 1
@@ -378,7 +375,8 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                 }
             )
 
-            await User.updateOne({ casinoBot: true }, { $inc: { balance: -wonAmount } })
+            const botAmount = Math.abs(Number(foundGame.amount) - wonAmount)
+            await User.updateOne({ casinoBot: true }, { $inc: { balance: -botAmount } })
 
             handleWinReport(userData, 'mines', foundGame.amount, fullPayout)
 
@@ -468,9 +466,8 @@ router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
     await Game.updateOne( { _id: foundGame._id }, {
             $set: {
                 'gameData.mines': minesPoses,
-                'payout': wonAmount,
-                'multiplayer': fullPayout,
-                'active': false
+                multiplayer: fullPayout,
+                active: false
             },
             $unset: {
                 'gameData.minesMap': 1
@@ -497,7 +494,8 @@ router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
         }
     })
 
-    await User.updateOne({ casinoBot: true }, { $inc: { balance: -wonAmount } })
+    const botAmount = Math.abs(Number(foundGame.amount) - wonAmount)
+    await User.updateOne({ casinoBot: true }, { $inc: { balance: -botAmount } })
 })
 
 module.exports = router

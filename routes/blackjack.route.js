@@ -285,13 +285,14 @@ const handleGameEnd = async ( res, userId, betAmount ) => {
     if( res.multiplayer === 0 ) botAmount = Number(betAmount)
     else if ( res.multiplayer < 1 ) botAmount = Number(betAmount) - (Number(betAmount) * res.multiplayer)
     else if ( res.multiplayer === 1 ) botAmount = 0
-    else botAmount = -(Number(betAmount) * res.multiplayer)
+    else botAmount = -(Math.abs(Number(betAmount) - (Number(betAmount) * res.multiplayer)))
+
+    //console.log(`betAmount: ${betAmount}, multiplier: ${res.multiplayer}, remove from housebal: ${botAmount}`)
 
     await db["user"].findOneAndUpdate(
         { casinoBot: true },
         { $inc: { balance: botAmount } }
     )
-
 }
 
 const spamLimiter = rateLimit({
@@ -543,6 +544,7 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             }
         })
     } catch ( err ) {
+        delete spamCache.bet[userData.id]
         console.error( err )
         res.status(500).json({ error: 'Internal server error' })
     }
@@ -768,6 +770,7 @@ router.post('/action-hit', authJwt, moveLimiter, async (req, res) => {
 
         res.status(200).json(populatedGame)
     } catch ( err ) {
+        delete spamCache.hit[userData.id]
         console.error( err )
         res.status(500).json({ error: 'Internal server error' })
     }
@@ -892,6 +895,7 @@ router.post('/action-stand', authJwt, moveLimiter, async (req, res) => {
 
         res.status(200).json(populatedGame)
     } catch ( err ) {
+        delete spamCache.stand[userData.id]
         console.error( err )
         res.status(500).json({ error: 'Internal server error' })
     }
@@ -1101,6 +1105,7 @@ router.post('/action-split', authJwt, moveLimiter, async (req, res) => {
 
         res.status(200).json(populatedGame)
     } catch ( err ) {
+        delete spamCache.split[userData.id]
         console.error( err )
         res.status(500).json({ error: 'Internal server error' })
     }
@@ -1251,6 +1256,7 @@ router.post('/action-insurance', authJwt, moveLimiter, async (req, res) => {
 
         res.status(200).json(populatedGame)
     } catch ( err ) {
+        delete spamCache.insurance[userData.id]
         console.error( err )
         res.status(500).json({ error: 'Internal server error' })
     }
@@ -1380,6 +1386,7 @@ router.post('/action-no-insurance', authJwt, moveLimiter, async (req, res) => {
 
         res.status(200).json(populatedGame)
     } catch ( err ) {
+        delete spamCache.noInsurance[userData.id]
         console.error( err )
         res.status(500).json({ error: 'Internal server error' })
     }
@@ -1542,6 +1549,7 @@ router.post('/action-double', authJwt, moveLimiter, async (req, res) => {
 
         res.status(200).json(populatedGame)
     } catch ( err ) {
+        delete spamCache.double[userData.id]
         console.error( err )
         res.status(500).json({ error: 'Internal server error' })
     }
