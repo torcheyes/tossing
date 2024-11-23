@@ -12,14 +12,39 @@ const { handleWinReport } = require('../helpers')
 const User = db.user
 const Game = db.game
 
+const CARDS = [ 
+    '♦2', '♥2', '♠2', '♣2', '♦3', '♥3', '♠3', '♣3', '♦4', '♥4',  
+    '♠4', '♣4', '♦5', '♥5', '♠5', '♣5', '♦6', '♥6', '♠6', '♣6', 
+    '♦7', '♥7', '♠7', '♣7', '♦8', '♥8', '♠8', '♣8', '♦9', '♥9', 
+    '♠9', '♣9', '♦10', '♥10', '♠10', '♣10', '♦J', '♥J', '♠J', 
+    '♣J', '♦Q', '♥Q', '♠Q', '♣Q', '♦K', '♥K', '♠K', '♣K', '♦A', 
+    '♥A', '♠A', '♣A' 
+]
 
-const cardSuits = ["D", "H", "S", "C"]
-const cardRanks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
-const deck = []
+const suitMapping = {
+    '♦': 'D',
+    '♥': 'H',
+    '♠': 'S',
+    '♣': 'C'
+}
+  
+function convertCards(cards) {
+    return cards.map(card => {
+        const suitSymbol = card[0] // First character is the suit
+        const rank = card.slice(1) // Remaining characters are the rank
+        return {
+            suit: suitMapping[suitSymbol], // Map suit symbol to "D", "H", "S", "C"
+            rank: rank
+        }
+    })
+}
 
-for (const suit of cardSuits) {
-    for (const rank of cardRanks) {
-        deck.push({suit, rank})
+function convertCard(card) {
+    const suitSymbol = card[0] // First character is the suit
+    const rank = card.slice(1) // Remaining characters are the rank
+    return {
+        suit: suitMapping[suitSymbol], // Map suit symbol to "D", "H", "S", "C"
+        rank: rank
     }
 }
 
@@ -33,7 +58,6 @@ function generateServerSeed() {
       seedHash,
     }
 }
-
 
 function playDealerTurns(dealerCards, shuffledDeck, dealerHiddenCard) {
     const newCards = [...dealerCards]
@@ -372,6 +396,49 @@ router.post('/active-bet', authJwt, spamLimiter, async (req, res) => {
     }
 })
 
+function* byteGenerator({ serverSeed, clientSeed, nonce, cursor }) {
+    // Initialize cursor variables
+    let currentRound = Math.floor(cursor / 32);
+    let currentRoundCursor = cursor % 32;
+  
+    while (true) {
+      // Create HMAC for the current round
+      const hmac = crypto.createHmac('sha256', serverSeed);
+      hmac.update(`${clientSeed}:${nonce}:${currentRound}`);
+      const buffer = hmac.digest();
+  
+      // Yield bytes from the buffer
+      while (currentRoundCursor < 32) {
+        yield buffer[currentRoundCursor];
+        currentRoundCursor++;
+      }
+  
+      // Move to the next round
+      currentRoundCursor = 0;
+      currentRound++;
+    }
+}
+const _ = require('lodash')
+
+function generateFloats({ serverSeed, clientSeed, nonce, cursor, count }) {
+    const rng = byteGenerator({ serverSeed, clientSeed, nonce, cursor });
+    const bytes = [];
+  
+    // Collect enough bytes
+    while (bytes.length < count * 4) {
+      bytes.push(rng.next().value);
+    }
+  
+    // Chunk bytes into groups of 4 and convert to floats
+    return _.chunk(bytes, 4).map(bytesChunk =>
+      bytesChunk.reduce((result, value, i) => {
+        const divider = 256 ** (i + 1); // Scale down byte values
+        const partialResult = value / divider;
+        return result + partialResult;
+      }, 0)
+    );
+}
+
 router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
     try {
         const userData = req.userData
@@ -442,7 +509,20 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
 
         await db['activeSeed'].updateOne({ _id: foundSeedDoc._id }, { nonce: foundSeedDoc.nonce })
 
-        const shuffledDeck = shuffleDeck([...deck], foundSeedDoc.serverSeed, foundSeedDoc.clientSeed, foundSeedDoc.nonce)
+        const floats = generateFloats({
+            serverSeed: foundSeedDoc.serverSeed,
+            clientSeed: foundSeedDoc.clientSeed,
+            nonce: foundSeedDoc.nonce,
+            cursor: 0,
+            count: 52, // Generate 5 floats
+        })
+
+        const shuffledDeck = []
+        floats.forEach( float => {
+            const card = CARDS[Math.floor(float * 52)]
+            const convertedCard = convertCard(card)
+            shuffledDeck.push(convertedCard)
+        } )
 
         /*const shuffledDeck = [
             {rank: 4, suit: 'C'},
