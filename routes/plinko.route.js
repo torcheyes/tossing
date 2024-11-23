@@ -70,6 +70,49 @@ const generatePlinkoEndPos = (serverSeed, clientSeed, nonce, percentages) => {
     return { resultIndex, gameHash };
 }
 
+function* byteGenerator({ serverSeed, clientSeed, nonce, cursor }) {
+    // Initialize cursor variables
+    let currentRound = Math.floor(cursor / 32);
+    let currentRoundCursor = cursor % 32;
+  
+    while (true) {
+      // Create HMAC for the current round
+      const hmac = crypto.createHmac('sha256', serverSeed);
+      hmac.update(`${clientSeed}:${nonce}:${currentRound}`);
+      const buffer = hmac.digest();
+  
+      // Yield bytes from the buffer
+      while (currentRoundCursor < 32) {
+        yield buffer[currentRoundCursor];
+        currentRoundCursor++;
+      }
+  
+      // Move to the next round
+      currentRoundCursor = 0;
+      currentRound++;
+    }
+}
+const _ = require('lodash')
+
+function generateFloats({ serverSeed, clientSeed, nonce, cursor, count }) {
+    const rng = byteGenerator({ serverSeed, clientSeed, nonce, cursor });
+    const bytes = [];
+  
+    // Collect enough bytes
+    while (bytes.length < count * 4) {
+      bytes.push(rng.next().value);
+    }
+  
+    // Chunk bytes into groups of 4 and convert to floats
+    return _.chunk(bytes, 4).map(bytesChunk =>
+      bytesChunk.reduce((result, value, i) => {
+        const divider = 256 ** (i + 1); // Scale down byte values
+        const partialResult = value / divider;
+        return result + partialResult;
+      }, 0)
+    );
+}
+
 
 router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
     let resSent
@@ -131,6 +174,27 @@ router.post('/drop-ball', authJwt, dropBallLimiter, async (req, res) => {
             }
         }
         activeSeed.nonce += 1
+
+        const floats = generateFloats({
+            serverSeed: foundSeedDoc.serverSeed,
+            clientSeed: foundSeedDoc.clientSeed,
+            nonce: foundSeedDoc.nonce,
+            cursor: 0,
+            count: 16, // Generate 5 floats
+        })
+
+        const DIRECTIONS = [ left, right ]
+
+        const path = []
+        floats.forEach( float => {
+            const direction = DIRECTIONS[Math.floor(float * 52)]
+            path.push(direction)
+        } )
+
+        console.log(path)
+
+
+        return
     
         const percentages = chancesValues[risk][rows]
         /*const percentages = []
