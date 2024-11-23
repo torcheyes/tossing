@@ -150,29 +150,14 @@ router.post('/drop-ball', authJwt, async (req, res) => {
         
         const initGame = async () => {
 
-            const results = await User.aggregate([
-                {
-                    $facet: {
-                        botUser: [
-                            { $match: { casinoBot: true, balance: { $gte: Number(betAmount) } } },
-                            { $project: { balance: 1 } }
-                        ],
-                        updatedUser: [
-                            {
-                                $match: {
-                                    userId: String(userData.id),
-                                    balance: { $gte: Number(betAmount) }
-                                }
-                            },
-                            { $set: { balance: { $subtract: ["$balance", Number(betAmount)] } } },
-                            { $project: { balance: 1 } }
-                        ]
-                    }
-                }
-            ])
-
-            const user = results[0].updatedUser[0]
-            const botUser = results[0].botUser[0]
+            const botUserPromise = User.findOne({ casinoBot: true, balance: { $gte: Number(betAmount) } }).select('balance').lean()
+            const updatedUserPromise = User.findOneAndUpdate(
+                { userId: String(userData.id), balance: { $gte: Number(betAmount) } },
+                { $inc: { balance: -Number(betAmount) } },
+                { new: true }
+            ).select('balance').lean()
+            
+            const [botUser, user] = await Promise.all([botUserPromise, updatedUserPromise])
 
             if (!user) return res.status(400).json({ error: 'Insufficient balance' })
             if( !botUser ) return res.status(400).json({ error: 'Insufficient house balance' })
@@ -238,15 +223,8 @@ router.post('/drop-ball', authJwt, async (req, res) => {
             const multiplier = payoutValues?.[risk]?.[rows]?.[endPos]
         
             if (multiplier === undefined) {
-                return res.status(400).json({ error: 'Something went wrong' });
+                return res.status(400).json({ error: 'Something went wrong' })
             }
-        
-            const losses = betAmount * (1 - multiplier)
-            const winnings = betAmount * multiplier;
-            const addedAmt = winnings - betAmount;
-        
-            //user.balance += addedAmt
-            //globalThis.plinkoCache[userData.id] = user
         
             const gameId = generateRandomId(32)
             res.status(200).json({
@@ -280,25 +258,9 @@ router.post('/drop-ball', authJwt, async (req, res) => {
             }, 30000 )
             globalThis.plinkoCache[`${userData.id}_timeout`] = timeoutId
 
-            await User.updateOne({ userId: String(userData.id) }, {
-                $inc: {
-                    balance: addedAmt,
-                    totalWagered: Number(betAmount),
-                    totalPlayed: 1,
-                    totalWon: multiplier > 1 ? 1 : 0,
-                    totalWinAmt: multiplier > 1 ? addedAmt : 0,
-                    totalLost: multiplier < 1 ? 1 : 0,
-                    totalTie: multiplier === 1 ? 1 : 0
-                }
-            })
-        
             await db['activeSeed'].updateOne({ _id: activeSeed._id }, { nonce: activeSeed.nonce })
         
-            if( multiplier > 1 ) {
-                await User.updateOne({ casinoBot: true }, { $inc: { balance: -winnings } })
-            } else if( multiplier < 1 ) {
-                await User.updateOne({ casinoBot: true }, { $inc: { balance: losses } })
-            }
+            await handleGameEnd({multiplayer: multiplier}, String(userData.id), Number(betAmount))
         
             await Game.create({
                 active: false,
@@ -331,6 +293,36 @@ router.post('/drop-ball', authJwt, async (req, res) => {
         console.log('Error:', error.message)
     }
 })
+
+const handleGameEnd = async ( res, userId, betAmount ) => {
+    await db["user"].findOneAndUpdate(
+        { userId: String(userId) },
+        {
+            $inc: {
+                balance: Number(betAmount) * res.multiplayer,
+                totalWagered: Number(betAmount),
+                totalWon: res.multiplayer > 1 ? 1 : 0,
+                totalLost: res.multiplayer < 1 ? 1 : 0,
+                totalTie: res.multiplayer === 1 ? 1 : 0,
+                totalPlayed: 1,
+                totalWinAmt: res.multiplayer > 1 ? (res.multiplayer * Number(betAmount)) : 0,
+            }
+        }
+    )
+
+    let botAmount
+    if( res.multiplayer === 0 ) botAmount = Number(betAmount)
+    else if ( res.multiplayer < 1 ) botAmount = Number(betAmount) - (Number(betAmount) * res.multiplayer)
+    else if ( res.multiplayer === 1 ) botAmount = 0
+    else botAmount = -(Math.abs(Number(betAmount) - (Number(betAmount) * res.multiplayer)))
+
+    //console.log(`betAmount: ${betAmount}, multiplier: ${res.multiplayer}, remove from housebal: ${botAmount}`)
+
+    await db["user"].findOneAndUpdate(
+        { casinoBot: true },
+        { $inc: { balance: botAmount } }
+    )
+}
 
 
 module.exports = router
