@@ -35,7 +35,7 @@ const maintenance = (req, res) => {
 }
 
 app.use( '/api', apiRoute )
-app.use( '/api/plinko', maintenance, plinkoRoute )
+app.use( '/api/plinko', plinkoRoute )
 app.use( '/api/mines', maintenance, minesRoute )
 app.use( '/api/blackjack', blackjackRoute )
 
