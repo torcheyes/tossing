@@ -1,7 +1,7 @@
 const express = require('express')
 const router = express.Router()
 const crypto = require('crypto')
-const rateLimit = require('express-rate-limit')
+const _ = require('lodash')
 
 
 const { db } = require("../handler")
@@ -14,24 +14,6 @@ const dropCords = require('../storage/plinkoDropCords.json')
 const User = db.user
 const Game = db.game
 
-
-const dropBallLimiter = rateLimit({
-    store: new rateLimit.MemoryStore(),
-    max: 1,
-    windowMs: 300,
-    standardHeaders: true, 
-    legacyHeaders: false,
-    handler: (req, res, next) => {
-        const timeLeft = (req.rateLimit.resetTime - Date.now()) / 1000
-        res.status(429).json({
-            error: 'This action cannot be performed due to slowmode rate limit.',
-            timeLeft: timeLeft > 0 ? timeLeft : 0,
-        })
-    },
-    keyGenerator: function(req) {
-        return String(req.userData.id)
-    }
-})
 
 function generateRandomId(length) {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -49,7 +31,7 @@ function generateServerSeed() {
     }
 }
   
-const generatePlinkoEndPos = (serverSeed, clientSeed, nonce, percentages) => {
+/*const generatePlinkoEndPos = (serverSeed, clientSeed, nonce, percentages) => {
     const gameSeed = `${serverSeed}${clientSeed}${nonce}`;
     const gameHash = crypto.createHash('sha512').update(gameSeed).digest('hex');
     const resultNumber = parseInt(gameHash.substring(0, 13), 16);
@@ -68,7 +50,7 @@ const generatePlinkoEndPos = (serverSeed, clientSeed, nonce, percentages) => {
     }
   
     return { resultIndex, gameHash };
-}
+}*/
 
 const generateEndPosFromPath = (path) => {
     let currentPos = Math.round(16 / 2) + 1
@@ -108,7 +90,7 @@ function* byteGenerator({ serverSeed, clientSeed, nonce, cursor }) {
       currentRound++;
     }
 }
-const _ = require('lodash')
+
 
 function generateFloats({ serverSeed, clientSeed, nonce, cursor, count }) {
     const rng = byteGenerator({ serverSeed, clientSeed, nonce, cursor });
@@ -135,6 +117,15 @@ const spamCache = {
     queue: {}
 }
 
+const handleNextInit = (userId) => {
+    if( spamCache.queue[String(userId)] !== undefined && spamCache.queue[String(userId)].length ) {
+        const nextInit = spamCache.queue[String(userId)].pop()
+        nextInit()
+    } else {
+        delete spamCache.queue[String(userId)]
+    }
+}
+
 router.post('/drop-ball', authJwt, async (req, res) => {
     try {
         const userData = req.userData
@@ -159,8 +150,14 @@ router.post('/drop-ball', authJwt, async (req, res) => {
             
             const [botUser, user] = await Promise.all([botUserPromise, updatedUserPromise])
 
-            if (!user) return res.status(400).json({ error: 'Insufficient balance' })
-            if( !botUser ) return res.status(400).json({ error: 'Insufficient house balance' })
+            if (!user) {
+                handleNextInit(userData.id)
+                return res.status(400).json({ error: 'Insufficient balance' })
+            }
+            if( !botUser ) {
+                handleNextInit(userData.id)
+                return res.status(400).json({ error: 'Insufficient house balance' })
+            }
             
             let activeSeed
             const cacheSeed = globalThis.plinkoCache[`${userData.id}_seed`]
@@ -225,11 +222,28 @@ router.post('/drop-ball', authJwt, async (req, res) => {
             if (multiplier === undefined) {
                 return res.status(400).json({ error: 'Something went wrong' })
             }
-        
+
             const gameId = generateRandomId(32)
+            const gameRes = new Game({
+                active: false,
+                id: gameId,
+                ownerId: String(userData.id),
+                amount: Number(betAmount),
+                multiplayer: multiplier,
+                game: 'plinko',
+                gameData: {
+                    rows: Number(rows),
+                    risk,
+                    clientSeed: activeSeed.clientSeed,
+                    serverSeedHashed: activeSeed.serverSeedHashed,
+                    nonce: activeSeed.nonce
+                }
+            })
+            
             res.status(200).json({
                 dropIndex: dropIndex,
                 gameInfo: {
+                    _id: gameRes._id,
                     id: gameId,
                     ownerId: String(userData.id),
                     amount: Number(betAmount),
@@ -244,6 +258,7 @@ router.post('/drop-ball', authJwt, async (req, res) => {
                     }
                 }
             })
+            await gameRes.save()
         
             if( globalThis.plinkoCache[`${userData.id}_timeout`] !== undefined ) {
                 clearTimeout(globalThis.plinkoCache[`${userData.id}_timeout`])
@@ -261,23 +276,6 @@ router.post('/drop-ball', authJwt, async (req, res) => {
             await db['activeSeed'].updateOne({ _id: activeSeed._id }, { nonce: activeSeed.nonce })
         
             await handleGameEnd({multiplayer: multiplier}, String(userData.id), Number(betAmount))
-        
-            await Game.create({
-                active: false,
-                id: gameId,
-                ownerId: String(userData.id),
-                amount: Number(betAmount),
-                multiplayer: multiplier,
-                game: 'plinko',
-                gameData: {
-                    rows: Number(rows),
-                    risk,
-                    clientSeed: activeSeed.clientSeed,
-                    serverSeedHashed: activeSeed.serverSeedHashed,
-                    nonce: activeSeed.nonce
-                }
-            })
-
         }
 
 

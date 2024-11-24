@@ -371,45 +371,45 @@ router.post('/active-bet', authJwt, spamLimiter, async (req, res) => {
 
 function* byteGenerator({ serverSeed, clientSeed, nonce, cursor }) {
     // Initialize cursor variables
-    let currentRound = Math.floor(cursor / 32);
-    let currentRoundCursor = cursor % 32;
+    let currentRound = Math.floor(cursor / 32)
+    let currentRoundCursor = cursor % 32
   
     while (true) {
-      // Create HMAC for the current round
-      const hmac = crypto.createHmac('sha256', serverSeed);
-      hmac.update(`${clientSeed}:${nonce}:${currentRound}`);
-      const buffer = hmac.digest();
-  
-      // Yield bytes from the buffer
-      while (currentRoundCursor < 32) {
-        yield buffer[currentRoundCursor];
-        currentRoundCursor++;
-      }
-  
-      // Move to the next round
-      currentRoundCursor = 0;
-      currentRound++;
+        // Create HMAC for the current round
+        const hmac = crypto.createHmac('sha256', serverSeed)
+        hmac.update(`${clientSeed}:${nonce}:${currentRound}`)
+        const buffer = hmac.digest()
+    
+        // Yield bytes from the buffer
+        while (currentRoundCursor < 32) {
+            yield buffer[currentRoundCursor]
+            currentRoundCursor++
+        }
+    
+        // Move to the next round
+        currentRoundCursor = 0
+        currentRound++
     }
 }
 const _ = require('lodash')
 
 function generateFloats({ serverSeed, clientSeed, nonce, cursor, count }) {
-    const rng = byteGenerator({ serverSeed, clientSeed, nonce, cursor });
-    const bytes = [];
+    const rng = byteGenerator({ serverSeed, clientSeed, nonce, cursor })
+    const bytes = []
   
     // Collect enough bytes
     while (bytes.length < count * 4) {
-      bytes.push(rng.next().value);
+        bytes.push(rng.next().value)
     }
   
     // Chunk bytes into groups of 4 and convert to floats
     return _.chunk(bytes, 4).map(bytesChunk =>
-      bytesChunk.reduce((result, value, i) => {
-        const divider = 256 ** (i + 1); // Scale down byte values
-        const partialResult = value / divider;
-        return result + partialResult;
-      }, 0)
-    );
+        bytesChunk.reduce((result, value, i) => {
+            const divider = 256 ** (i + 1); // Scale down byte values
+            const partialResult = value / divider;
+            return result + partialResult;
+        }, 0)
+    )
 }
 
 router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
@@ -436,30 +436,24 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             return res.status(400).json({ error: 'Maximum wager is 25$' })
         }
 
-        const user = await User.findOne({userId: String(userData.id)}).select('balance').lean()
+        const botUserPromise = User.findOne({ casinoBot: true, balance: { $gte: Number(betAmount) } }).select('balance').lean()
+        const updatedUserPromise = User.findOneAndUpdate(
+            { userId: String(userData.id), balance: { $gte: Number(betAmount) } },
+            { $inc: { balance: -Number(betAmount) } },
+            { new: true }
+        ).select('balance').lean()
+        
+        const [botUser, user] = await Promise.all([botUserPromise, updatedUserPromise])
+
         if (!user) {
-            delete spamCache.bet[userData.id]
-            return res.status(400).json({ error: 'Unauthorized access' })
-        }
-        if (Number(betAmount) > user.balance) {
             delete spamCache.bet[userData.id]
             return res.status(400).json({ error: 'Insufficient balance' })
         }
-    
-        const botUser = await User.findOne({casinoBot: true}).select('balance').lean()
         if(!botUser) {
-            delete spamCache.bet[userData.id]
-            return res.status(400).json({ error: 'Bot user not found' })
-        }
-        if( Number(betAmount) > botUser.balance ) {
             delete spamCache.bet[userData.id]
             return res.status(400).json({ error: 'Insufficient house balance' })
         }
 
-        await db["user"].findOneAndUpdate(
-            { userId: String(userData.id) },
-            { $inc: { balance: -Number(betAmount) } }
-        )
 
         let foundSeedDoc = await db['activeSeed'].findOne({ userId: String(userData.id) }).lean()
         if (!foundSeedDoc) {

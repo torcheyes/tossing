@@ -102,7 +102,8 @@ const moveLimiter = rateLimit({
 const spamCache = {
     bet: {},
     cashout: {},
-    move: {}
+    move: {},
+    queue: {}
 }
 
 router.post('/active-bet', authJwt, spamLimiter, async (req, res) => {
@@ -164,27 +165,23 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
             return res.status(400).json({ error: 'Invalid request data' })
         }
     
-        const user = await User.findOne({userId: String(userData.id)}).select('balance').lean()
+        const botUserPromise = User.findOne({ casinoBot: true, balance: { $gte: Number(betAmount) } }).select('balance').lean()
+        const updatedUserPromise = User.findOneAndUpdate(
+            { userId: String(userData.id), balance: { $gte: Number(betAmount) } },
+            { $inc: { balance: -Number(betAmount) } },
+            { new: true }
+        ).select('balance').lean()
+        
+        const [botUser, user] = await Promise.all([botUserPromise, updatedUserPromise])
+
         if (!user) {
-            delete spamCache.bet[userData.id]
-            return res.status(400).json({ error: 'Unauthorized access' })
-        }
-        if (Number(betAmount) > user.balance) {
             delete spamCache.bet[userData.id]
             return res.status(400).json({ error: 'Insufficient balance' })
         }
-    
-        const botUser = await User.findOne({casinoBot: true}).select('balance').lean()
         if(!botUser) {
-            delete spamCache.bet[userData.id]
-            return res.status(400).json({ error: 'Bot user not found' })
-        }
-        if( Number(betAmount) > botUser.balance ) {
             delete spamCache.bet[userData.id]
             return res.status(400).json({ error: 'Insufficient house balance' })
         }
-
-        await User.findOneAndUpdate({userId: String(userData.id)}, { $inc: { balance: -Number(betAmount) } })
 
         let foundSeedDoc = await db['activeSeed'].findOne({ userId: String(userData.id) }).lean()
         if (!foundSeedDoc) {
@@ -248,59 +245,69 @@ router.post('/create-bet', authJwt, spamLimiter, async (req, res) => {
     }
 })
 
-router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
+const handleNextInit = (userId) => {
+    if( spamCache.queue[String(userId)] !== undefined && spamCache.queue[String(userId)].length ) {
+        const nextInit = spamCache.queue[String(userId)].pop()
+        nextInit()
+    } else {
+        delete spamCache.queue[String(userId)]
+    }
+}
+
+router.post('/next-move', authJwt, async (req, res) => {
     try {
         const userData = req.userData
 
-        if( spamCache.move[userData.id] === true ) return res.status(400).json({ error: 'stop spam' })
-        spamCache.move[userData.id] = true
-
-        setTimeout( () => {
-            delete spamCache.move[userData.id]
-        }, 300 )
-
-        const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true}).select('id amount gameData').lean()
-        if(!foundGame) return res.status(400).json({ error: 'Game not found' })
-
-        const { fields } = req.body
-
-        if( fields.length > (25 - foundGame.gameData.minesCount) ) return res.status(400).json({ error: 'Too many fields' })
-
-        const gameMinesMap = foundGame.gameData.minesMap
-
-        let foundMine = false
-        let newFields = []
-        for (const [i, field] of fields.entries()) {
-            let fieldAlreadyAdded = foundGame.gameData.rounds.find(r => r.field === field)
-            if (fieldAlreadyAdded) continue
-
-            if (gameMinesMap[field] === 0) {
-                const playedRounds = foundGame.gameData.rounds.length + (i + 1)
-                const currentPayout = minesWinRates[foundGame.gameData.minesCount][playedRounds]
-                const newField = {
-                    field,
-                    payoutMultiplier: currentPayout
-                }
-                newFields.push(newField)
-
-                if( 25 - foundGame.gameData.minesCount === playedRounds ) break
-            } else {
-                const newField = {
-                    field,
-                    payoutMultiplier: 0
-                }
-                newFields.push(newField)
-                foundMine = true
+        const initGame = async () => {
+            const foundGame = await Game.findOne({game: 'mines', ownerId: String(userData.id), active: true}).select('id amount gameData').lean()
+            if(!foundGame) {
+                handleNextInit(userData.id)
+                return res.status(400).json({ error: 'Game not found' })
             }
-        }
 
-        let minesPoses = []
-        gameMinesMap.forEach( (p, i) => {
-            if( p === 1 ) minesPoses.push(i)
-        } )
+            const { fields } = req.body
 
-        if( foundMine ) {
-            await Game.updateOne( { _id: foundGame._id }, {
+            if( fields.length > (25 - foundGame.gameData.minesCount) ) {
+                handleNextInit(userData.id)
+                return res.status(400).json({ error: 'Too many fields' })
+            }
+
+            const gameMinesMap = foundGame.gameData.minesMap
+
+            let foundMine = false
+            let newFields = []
+            for (const [i, field] of fields.entries()) {
+                let fieldAlreadyAdded = foundGame.gameData.rounds.find(r => r.field === field)
+                if (fieldAlreadyAdded) continue
+
+                if (gameMinesMap[field] === 0) {
+                    const playedRounds = foundGame.gameData.rounds.length + (i + 1)
+                    const currentPayout = minesWinRates[foundGame.gameData.minesCount][playedRounds]
+                    const newField = {
+                        field,
+                        payoutMultiplier: currentPayout
+                    }
+                    newFields.push(newField)
+
+                    if( 25 - foundGame.gameData.minesCount === playedRounds ) break
+                } else {
+                    const newField = {
+                        field,
+                        payoutMultiplier: 0
+                    }
+                    newFields.push(newField)
+                    foundMine = true
+                }
+            }
+
+            let minesPoses = []
+            gameMinesMap.forEach( (p, i) => {
+                if( p === 1 ) minesPoses.push(i)
+            } )
+
+            if( foundMine ) {
+
+                const gameUpdatePromise = Game.updateOne( { _id: foundGame._id }, {
                     $push: {
                         'gameData.rounds': {
                             $each: newFields
@@ -314,21 +321,106 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                     $unset: {
                         'gameData.minesMap': 1
                     }
-                }
-            )
+                })
+                const botUserUpdatePromise = User.updateOne({ casinoBot: true }, { $inc: { balance: foundGame.amount } })
 
-            await db["user"].updateOne({ userId: String(userData.id) }, {
-                $inc: {
-                    totalWagered: Number(foundGame.amount),
-                    totalLost: 1,
-                    totalPlayed: 1
+                await Promise.all([gameUpdatePromise, botUserUpdatePromise])
+
+                handleNextInit(userData.id)
+
+                db["user"].updateOne({ userId: String(userData.id) }, {
+                    $inc: {
+                        totalWagered: Number(foundGame.amount),
+                        totalLost: 1,
+                        totalPlayed: 1
+                    }
+                })
+                
+                return res.status(200).json({
+                    active: false,
+                    _id: foundGame._id,
+                    id: foundGame.id,
+                    amount: Number(foundGame.amount),
+                    game: 'mines',
+                    ownerId: String(userData.id),
+                    multiplayer: 0,
+                    gameData: {
+                        mines: minesPoses,
+                        minesCount: foundGame.gameData.minesCount,
+                        rounds: [...foundGame.gameData.rounds, ...newFields]
+                    }
+                })
+            }
+
+            const playedRounds = [...foundGame.gameData.rounds, ...newFields].length
+            if( 25 - foundGame.gameData.minesCount === playedRounds ) {
+                const fullPayout = minesWinRates[foundGame.gameData.minesCount][playedRounds]
+                const wonAmount = Number(foundGame.amount) * fullPayout
+
+                const userPromise = db["user"].updateOne({ userId: String(userData.id) }, {
+                    $inc: {
+                        totalWagered: Number(foundGame.amount),
+                        totalWon: 1,
+                        totalPlayed: 1,
+                        balance: Number(wonAmount),
+                        totalWinAmt: Number(wonAmount)
+                    }
+                })
+            
+                const gamePromise = Game.updateOne( { _id: foundGame._id }, {
+                        $push: {
+                            'gameData.rounds': {
+                                $each: newFields
+                            }
+                        },
+                        $set: {
+                            'gameData.mines': minesPoses,
+                            multiplayer: fullPayout,
+                            active: false
+                        },
+                        $unset: {
+                            'gameData.minesMap': 1
+                        }
+                    }
+                )
+
+                const botAmount = Math.abs(Number(foundGame.amount) - wonAmount)
+                const botUserPromise = User.updateOne({ casinoBot: true }, { $inc: { balance: -botAmount } })
+
+                await Promise.all([userPromise, gamePromise, botUserPromise])
+
+                handleNextInit(userData.id)
+
+                handleWinReport(userData, 'mines', foundGame.amount, fullPayout)
+
+                return res.status(200).json({
+                    active: false,
+                    _id: foundGame._id,
+                    id: foundGame.id,
+                    amount: Number(foundGame.amount),
+                    game: 'mines',
+                    ownerId: String(userData.id),
+                    multiplayer: fullPayout,
+                    gameData: {
+                        mines: minesPoses,
+                        minesCount: foundGame.gameData.minesCount,
+                        rounds: [...foundGame.gameData.rounds, ...newFields]
+                    }
+                })
+            }
+            
+            await Game.updateOne( { _id: foundGame._id }, {
+                $push: {
+                    'gameData.rounds': {
+                        $each: newFields
+                    }
                 }
             })
 
-            await User.updateOne({ casinoBot: true }, { $inc: { balance: foundGame.amount } })
-            
-            return res.status(200).json({
-                active: false,
+            handleNextInit(userData.id)
+
+            res.status(200).json({
+                active: true,
                 _id: foundGame._id,
                 id: foundGame.id,
                 amount: Number(foundGame.amount),
@@ -336,88 +428,20 @@ router.post('/next-move', authJwt, moveLimiter, async (req, res) => {
                 ownerId: String(userData.id),
                 multiplayer: 0,
                 gameData: {
-                    mines: minesPoses,
+                    mines: null,
                     minesCount: foundGame.gameData.minesCount,
                     rounds: [...foundGame.gameData.rounds, ...newFields]
                 }
             })
         }
 
-        const playedRounds = [...foundGame.gameData.rounds, ...newFields].length
-        if( 25 - foundGame.gameData.minesCount === playedRounds ) {
-            const fullPayout = minesWinRates[foundGame.gameData.minesCount][playedRounds]
-            const wonAmount = Number(foundGame.amount) * fullPayout
-
-            await db["user"].updateOne({ userId: String(userData.id) }, {
-                $inc: {
-                    totalWagered: Number(foundGame.amount),
-                    totalWon: 1,
-                    totalPlayed: 1,
-                    balance: Number(wonAmount),
-                    totalWinAmt: Number(wonAmount)
-                }
-            })
-        
-            await Game.updateOne( { _id: foundGame._id }, {
-                    $push: {
-                        'gameData.rounds': {
-                            $each: newFields
-                        }
-                    },
-                    $set: {
-                        'gameData.mines': minesPoses,
-                        multiplayer: fullPayout,
-                        active: false
-                    },
-                    $unset: {
-                        'gameData.minesMap': 1
-                    }
-                }
-            )
-
-            const botAmount = Math.abs(Number(foundGame.amount) - wonAmount)
-            await User.updateOne({ casinoBot: true }, { $inc: { balance: -botAmount } })
-
-            handleWinReport(userData, 'mines', foundGame.amount, fullPayout)
-
-            return res.status(200).json({
-                active: false,
-                _id: foundGame._id,
-                id: foundGame.id,
-                amount: Number(foundGame.amount),
-                game: 'mines',
-                ownerId: String(userData.id),
-                multiplayer: fullPayout,
-                gameData: {
-                    mines: minesPoses,
-                    minesCount: foundGame.gameData.minesCount,
-                    rounds: [...foundGame.gameData.rounds, ...newFields]
-                }
-            })
+        if( spamCache.queue[userData.id] === undefined ) {
+            spamCache.queue[userData.id] = []
+            initGame()
+        } else {
+            spamCache.queue[userData.id].push(initGame)
         }
         
-        await Game.updateOne( { _id: foundGame._id }, {
-            $push: {
-                'gameData.rounds': {
-                    $each: newFields
-                }
-            }
-        })
-        
-        res.status(200).json({
-            active: true,
-            _id: foundGame._id,
-            id: foundGame.id,
-            amount: Number(foundGame.amount),
-            game: 'mines',
-            ownerId: String(userData.id),
-            multiplayer: 0,
-            gameData: {
-                mines: null,
-                minesCount: foundGame.gameData.minesCount,
-                rounds: [...foundGame.gameData.rounds, ...newFields]
-            }
-        })
 
     } catch ( err ) {
         console.error( err )
@@ -453,7 +477,7 @@ router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
     const fullPayout = minesWinRates[foundGame.gameData.minesCount][playedRounds]
     const wonAmount = Number(foundGame.amount) * fullPayout
 
-    await db["user"].updateOne({ userId: String(userData.id) }, {
+    const userPromise = db["user"].updateOne({ userId: String(userData.id) }, {
         $inc: {
             totalWagered: Number(foundGame.amount),
             totalWon: 1,
@@ -463,7 +487,7 @@ router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
         }
     })
 
-    await Game.updateOne( { _id: foundGame._id }, {
+    const gamePromise = Game.updateOne( { _id: foundGame._id }, {
             $set: {
                 'gameData.mines': minesPoses,
                 multiplayer: fullPayout,
@@ -474,6 +498,8 @@ router.post('/bet-cashout', authJwt, spamLimiter, async (req, res) => {
             }
         }
     )
+
+    await Promise.all([userPromise, gamePromise])
 
     handleWinReport(userData, 'mines', foundGame.amount, fullPayout)
 
