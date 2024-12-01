@@ -214,7 +214,9 @@ router.post('/drop-ball', authJwt, async (req, res) => {
                 path.push(direction)
             } )
 
-            const endPos = generateEndPosFromPath(path)
+            let endPos = generateEndPosFromPath(path)
+            if( endPos === 0 ) endPos = 5
+            else if( endPos === 16 ) endPos = 11
         
             const dropIndex = dropCords[endPos+1][Math.floor(Math.random() * dropCords[endPos+1].length)]
             const multiplier = payoutValues?.[risk]?.[rows]?.[endPos]
@@ -283,6 +285,7 @@ router.post('/drop-ball', authJwt, async (req, res) => {
             spamCache.queue[userData.id] = []
             initGame()
         } else {
+            if( spamCache.queue[userData.id].length > 10 ) return res.status(400).json({ error: 'Too many requests' })
             spamCache.queue[userData.id].push(initGame)
         }
         

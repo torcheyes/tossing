@@ -439,6 +439,7 @@ router.post('/next-move', authJwt, async (req, res) => {
             spamCache.queue[userData.id] = []
             initGame()
         } else {
+            if( spamCache.queue[userData.id].length > 10 ) return res.status(400).json({ error: 'Too many requests' })
             spamCache.queue[userData.id].push(initGame)
         }
         
